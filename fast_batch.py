@@ -10,6 +10,7 @@
 import concurrent.futures
 import subprocess
 import argparse
+import platform
 import shutil
 import pynvml
 import signal
@@ -118,21 +119,27 @@ def process_files_LMT2_batch():
     Raises:
         Exception: If there is an issue with retrieving GPU memory info or processing files, it will print an error message.
     """
+
     total_memory, free_memory = get_gpu_memory_info()
-    vram_per_process = 11 * 1024**3  # Convert 11 GB to bytes
-    max_processes = int(free_memory // vram_per_process)
 
-    input_dir = 'Input-Videos'
-    files_to_process = os.listdir(input_dir)
-    num_files = len(files_to_process)
+    minimum_mem_ofset = 5.5 * 1024**3
 
-    file_queue = queue.Queue()
-    for i, file_to_process in enumerate(files_to_process, 1):
-        file_queue.put((file_to_process, i))
+    if total_memory > minimum_mem_ofset:
+        vram_per_process = minimum_mem_ofset * 2 # 11 * 1024**3  # GPU Model Size 11 GB
+        max_processes = int(free_memory // vram_per_process)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_processes) as executor:
-        futures = [executor.submit(worker, file_queue) for _ in range(max_processes)]
-        concurrent.futures.wait(futures)
+        input_dir = 'Input-Videos'
+        files_to_process = os.listdir(input_dir)
+        num_files = len(files_to_process)
+
+        file_queue = queue.Queue()
+        for i, file_to_process in enumerate(files_to_process, 1):
+            file_queue.put((file_to_process, i))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_processes) as executor:
+            futures = [executor.submit(worker, file_queue) for _ in range(max_processes)]
+            concurrent.futures.wait(futures)
+
 
 def cleanup_filenames():
     """

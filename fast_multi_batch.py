@@ -145,7 +145,9 @@ def process_files_LMT2_batch():
         Exception: If there is an issue with retrieving GPU memory info or processing files, it will print an error message.
     """
 
+    print("Starting process_files_LMT2_batch...")
     gpu_info = get_gpu_memory_info()
+    print(f"GPU information: {gpu_info}")
 
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)

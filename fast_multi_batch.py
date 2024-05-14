@@ -23,13 +23,11 @@ import os
 
 def get_gpu_memory_info():
     """
-    Retrieves the total and free GPU memory information for all GPUs.
-
-    This function initializes the NVIDIA Management Library (NVML), gets the memory
-    information for each GPU device, and then shuts down NVML.
+    Retrieves the total and free GPU memory information for all available GPUs.
 
     Returns:
-        list of tuple: Each tuple contains:
+        list: A list of tuples, where each tuple contains:
+            - gpu_index (int): The index of the GPU.
             - total (int): The total memory of the GPU in bytes.
             - free (int): The free memory of the GPU in bytes.
 
@@ -37,39 +35,37 @@ def get_gpu_memory_info():
         pynvml.NVMLError: If there is an issue with NVML initialization or querying the GPU memory info.
     """
     pynvml.nvmlInit()
-    gpu_count = pynvml.nvmlDeviceGetCount()
-    memory_info = []
-    for i in range(gpu_count):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+    gpu_info = []
+    for gpu_index in range(pynvml.nvmlDeviceGetCount()):
+        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        memory_info.append((info.total, info.free))
+        gpu_info.append((gpu_index, info.total, info.free))
     pynvml.nvmlShutdown()
-    return memory_info
+    return gpu_info
 
-
-def process_file(file_to_process, video_folder_name, gpu_id):
+def process_file(file_to_process, video_folder_name, gpu_index):
     """
-    Processes a video file by moving it to a processing directory, running a transcription task, 
+    Processes a video file by moving it to a processing directory, running a transcription task on a specific GPU,
     and then organizing the processed files into a new directory.
 
     Args:
         file_to_process (str): The name of the file to be processed.
         video_folder_name (str): The name of the folder to store the processed video and related files.
+        gpu_index (int): The index of the GPU to use for processing.
 
     Raises:
-        Exception: If there is any issue during the file processing, it will print an error message 
+        Exception: If there is any issue during the file processing, it will print an error message
                   and attempt to reverse any file operations.
     """
     try:
         # Move the file to the processing directory
         shutil.move(os.path.join('Input-Videos', file_to_process), file_to_process)
-        print(f"Processing file: {file_to_process}")
+        print(f"Processing file: {file_to_process} on GPU {gpu_index}")
         filenamestatic = os.path.splitext(file_to_process)[0]
         print(filenamestatic)
-        
-        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_id} --transcript-path "{filenamestatic}".json', shell=True)        
-        
-        
+
+        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_index} --transcript-path "{filenamestatic}".json', shell=True)
+
         # Create a new directory for the processed video and move all related files
         new_folder_path = os.path.join('Videos', video_folder_name)
         os.mkdir(new_folder_path)
@@ -111,23 +107,26 @@ def worker(file_queue):
             break
 
         video_folder_name = f'Video - {file_to_process[1]}'
-        process_file(file_to_process[0], video_folder_name, gpu_id)
+        process_file(file_to_process[0], video_folder_name)
         file_queue.task_done()
 
 def process_files_LMT2_batch():
     """
     Processes video files in batches, utilizing available GPU memory to determine the number of concurrent processes.
 
-    This function retrieves the total and free GPU memory, calculates the maximum number of processes that can 
-    run concurrently based on the VRAM per process, and then processes files from the 'Input-Videos' directory 
-    using a thread pool executor.
+    This function retrieves the total and free GPU memory for all available GPUs, calculates the maximum number of
+    processes that can run concurrently on each GPU based on the VRAM per process, and then processes files from
+    the 'Input-Videos' directory using a thread pool executor.
 
     Raises:
         Exception: If there is an issue with retrieving GPU memory info or processing files, it will print an error message.
     """
 
-    memory_infos = get_gpu_memory_info()
-    minimum_mem_offset = 5.5 * 1024**3
+    gpu_memory_info = get_gpu_memory_info()
+
+    minimum_mem_ofset = 5.5 * 1024**3
+    vram_per_process = minimum_mem_ofset * 2  # 11 * 1024**3  # GPU Model Size 11 GB
+
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
     num_files = len(files_to_process)
@@ -136,15 +135,16 @@ def process_files_LMT2_batch():
     for i, file_to_process in enumerate(files_to_process, 1):
         file_queue.put((file_to_process, i))
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = []
-        for gpu_id, (total_memory, free_memory) in enumerate(memory_infos):
-            if total_memory > minimum_mem_offset:
-                vram_per_process = minimum_mem_offset * 2
-                max_processes = int(free_memory // vram_per_process)
-                for _ in range(max_processes):
-                    futures.append(executor.submit(worker, file_queue, gpu_id))
-        concurrent.futures.wait(futures)
+    for gpu_index, total_memory, free_memory in gpu_memory_info:
+        if total_memory > minimum_mem_ofset:
+            max_processes = int(free_memory // vram_per_process)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_processes) as executor:
+                futures = [executor.submit(worker, file_queue, gpu_index) for _ in range(max_processes)]
+                concurrent.futures.wait(futures)
+
+        if file_queue.empty():
+            break
 
 
 def cleanup_filenames():

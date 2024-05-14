@@ -42,7 +42,7 @@ def get_gpu_memory_info():
     for i in range(pynvml.nvmlDeviceGetCount()):
         handle = pynvml.nvmlDeviceGetHandleByIndex(i)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        gpu_info.append((info.total, info.free))
+        gpu_info.append((i, info.total, info.free))
 
     pynvml.nvmlShutdown()
     return gpu_info
@@ -114,11 +114,16 @@ def worker(file_queue, gpu_info):
 
         video_folder_name = f'Video - {file_to_process[1]}'
 
-        # Find the GPU with the most available memory
-        available_gpus = [(gpu_id, free_mem) for gpu_id, (total_mem, free_mem) in enumerate(gpu_info) if free_mem > 5 * 1024**3]
+        # Find the GPU with the most available memory and at least 5 GB free
+        available_gpus = [(gpu_id, free_mem) for gpu_id, total_mem, free_mem in gpu_info if free_mem > 5 * 1024**3]
         if available_gpus:
             gpu_id, _ = max(available_gpus, key=lambda x: x[1])
             process_file(file_to_process[0], video_folder_name, gpu_id)
+
+            # Update the available memory for the used GPU
+            for i, (g_id, total_mem, free_mem) in enumerate(gpu_info):
+                if g_id == gpu_id:
+                    gpu_info[i] = (g_id, total_mem, free_mem - 5 * 1024**3)  # Assuming each process uses around 5 GB
         else:
             print("No available GPU found with sufficient memory.")
 
@@ -139,8 +144,6 @@ def process_files_LMT2_batch():
 
     gpu_info = get_gpu_memory_info()
 
-    vram_per_process = 11 * 1024**3  # Assuming each process requires around 5 GB of VRAM
-
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
     num_files = len(files_to_process)
@@ -149,7 +152,7 @@ def process_files_LMT2_batch():
     for i, file_to_process in enumerate(files_to_process, 1):
         file_queue.put((file_to_process, i))
 
-    max_workers = sum(free_mem // vram_per_process for total_mem, free_mem in gpu_info)
+    max_workers = sum(free_mem // (11 * 1024**3) for gpu_id, total_mem, free_mem in gpu_info)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(worker, file_queue, gpu_info) for _ in range(max_workers)]

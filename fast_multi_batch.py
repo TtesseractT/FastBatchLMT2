@@ -121,8 +121,7 @@ def process_files_LMT2_batch():
     """
 
     gpu_mem_info = get_gpu_memory_info()
-    # Assuming a VRAM requirement of 11 GB per process
-    vram_per_process = 11 * 1024**3
+    vram_per_process = 11 * 1024**3  # 11 GB per process
     processes_info = []
 
     for i, (total_memory, free_memory) in enumerate(gpu_mem_info):
@@ -142,17 +141,26 @@ def process_files_LMT2_batch():
     file_queue = queue.Queue()
     for file_name in files_to_process:
         file_queue.put(file_name)
+    print(f"Loaded {file_queue.qsize()} files into the queue.")
+
+    if file_queue.empty():
+        print("File queue is empty, no more files to process.")
+        return
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = []
         for gpu_index, max_procs in processes_info:
             for _ in range(min(max_procs, file_queue.qsize())):
                 if file_queue.empty():
+                    print("All files have been assigned for processing.")
                     break
                 file_to_process = file_queue.get()
                 video_folder_name = f'Video - {os.path.splitext(file_to_process)[0]}'
+                print(f"Dispatching {file_to_process} to GPU {gpu_index}")
                 futures.append(executor.submit(process_file, file_to_process, video_folder_name, gpu_index))
         concurrent.futures.wait(futures)
+        print("Processing complete.")
+
 
 
 def cleanup_filenames():

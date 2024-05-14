@@ -115,7 +115,7 @@ def worker(file_queue, gpu_info):
         video_folder_name = f'Video - {file_to_process[1]}'
 
         # Find the GPU with the most available memory
-        available_gpus = [(gpu_id, free_mem) for gpu_id, (total_mem, free_mem) in enumerate(gpu_info) if free_mem > 11 * 1024**3]
+        available_gpus = [(gpu_id, free_mem) for gpu_id, (total_mem, free_mem) in enumerate(gpu_info) if free_mem > 5 * 1024**3]
         if available_gpus:
             gpu_id, _ = max(available_gpus, key=lambda x: x[1])
             process_file(file_to_process[0], video_folder_name, gpu_id)
@@ -123,6 +123,7 @@ def worker(file_queue, gpu_info):
             print("No available GPU found with sufficient memory.")
 
         file_queue.task_done()
+
 def process_files_LMT2_batch():
     """
     Processes video files in batches, utilizing available GPU memory across multiple GPUs
@@ -138,8 +139,7 @@ def process_files_LMT2_batch():
 
     gpu_info = get_gpu_memory_info()
 
-    minimum_mem_offset = 5.5 * 1024**3
-    vram_per_process = minimum_mem_offset * 2  # 11 * 1024**3  # GPU Model Size 11 GB
+    vram_per_process = 11 * 1024**3  # Assuming each process requires around 5 GB of VRAM
 
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
@@ -149,7 +149,7 @@ def process_files_LMT2_batch():
     for i, file_to_process in enumerate(files_to_process, 1):
         file_queue.put((file_to_process, i))
 
-    max_workers = sum(1 for total_mem, free_mem in gpu_info if free_mem > vram_per_process)
+    max_workers = sum(free_mem // vram_per_process for total_mem, free_mem in gpu_info)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(worker, file_queue, gpu_info) for _ in range(max_workers)]

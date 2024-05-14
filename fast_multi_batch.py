@@ -56,24 +56,35 @@ def process_file(file_to_process, video_folder_name):
         gpu_index (int): Index of the GPU to use for processing.
     """
     try:
+        # Construct the processing directory path
+        processing_dir = os.path.join('Processing', video_folder_name)
+        if not os.path.exists(processing_dir):
+            os.makedirs(processing_dir)
+        
         # Move the file to the processing directory
-        shutil.move(os.path.join('Input-Videos', file_to_process), file_to_process)
-        print(f"Processing file: {file_to_process}")
-        filenamestatic = os.path.splitext(file_to_process)[0]
-        print(filenamestatic)
+        source_path = os.path.join('Input-Videos', file_to_process)
+        dest_path = os.path.join(processing_dir, file_to_process)
+        shutil.move(source_path, dest_path)
+        print(f"Moved {file_to_process} to processing directory on GPU {gpu_index}.")
         
-        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_index} --transcript-path "{filenamestatic}.json"', shell=True)
+        # Construct the command to process the file
+        cmd = f'insanely-fast-whisper --file-name "{dest_path}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_index} --transcript-path "{os.path.splitext(dest_path)[0]}.json"'
+        print(f"Running command: {cmd}")
         
-        # Create a new directory for the processed video and move all related files
-        new_folder_path = os.path.join('Videos', video_folder_name)
-        os.mkdir(new_folder_path)
+        # Execute the command
+        result = subprocess.run(cmd, shell=True, capture_output=True)
+        print(f"Command output: {result.stdout.decode()}")
+        print(f"Command errors: {result.stderr.decode()}")
+        
+        if result.returncode != 0:
+            print(f"Command failed with code {result.returncode}")
 
-        # Move the original file and all related output files
-        shutil.move(file_to_process, new_folder_path)
-        output_file_base = os.path.splitext(file_to_process)[0]
-        for filename in os.listdir('.'):
-            if filename.startswith(output_file_base):
-                shutil.move(filename, new_folder_path)
+        # Move the processed files to the final directory
+        final_folder_path = os.path.join('Videos', video_folder_name)
+        if not os.path.exists(final_folder_path):
+            os.makedirs(final_folder_path)
+        shutil.move(dest_path, final_folder_path)
+        print(f"File processing completed. {file_to_process} moved to {final_folder_path}.")
 
     except Exception as e:
         print(f"Processing failed with error: {e}")

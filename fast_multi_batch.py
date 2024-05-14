@@ -64,7 +64,7 @@ def process_file(file_to_process, video_folder_name, gpu_id):
     try:
         # Move the file to the processing directory
         shutil.move(os.path.join('Input-Videos', file_to_process), file_to_process)
-        print(f"Processing file: {file_to_process}")
+        print(f"Processing file: {file_to_process} on GPU {gpu_id}")
         filenamestatic = os.path.splitext(file_to_process)[0]
         print(filenamestatic)
 
@@ -114,20 +114,23 @@ def worker(file_queue, gpu_info):
 
         video_folder_name = f'Video - {file_to_process[1]}'
 
-        # Find the GPU with the most available memory and at least 5 GB free
-        available_gpus = [(gpu_id, free_mem) for gpu_id, total_mem, free_mem in gpu_info if free_mem > 5 * 1024**3]
+        # Find the GPU with the smallest queue and at least 11 GB free memory
+        available_gpus = [(gpu_id, free_mem, len(gpu_queue)) for gpu_id, total_mem, free_mem, gpu_queue in gpu_queues if free_mem > 11 * 1024**3]
         if available_gpus:
-            gpu_id, _ = max(available_gpus, key=lambda x: x[1])
-            process_file(file_to_process[0], video_folder_name, gpu_id)
-
-            # Update the available memory for the used GPU
-            for i, (g_id, total_mem, free_mem) in enumerate(gpu_info):
-                if g_id == gpu_id:
-                    gpu_info[i] = (g_id, total_mem, free_mem - 5 * 1024**3)  # Assuming each process uses around 5 GB
+            gpu_id, free_mem, queue_len = min(available_gpus, key=lambda x: (x[2], x[1]))
+            gpu_queues[gpu_id][1].append(file_to_process)
         else:
             print("No available GPU found with sufficient memory.")
 
         file_queue.task_done()
+
+    # Process files in the GPU queues
+    for gpu_id, total_mem, free_mem, gpu_queue in gpu_queues:
+        while gpu_queue:
+            file_to_process = gpu_queue.popleft()
+            video_folder_name = f'Video - {file_to_process[1]}'
+            process_file(file_to_process[0], video_folder_name, gpu_id)
+            gpu_queues[gpu_id] = (gpu_id, total_mem, free_mem - 11 * 1024**3, gpu_queue)
 
 def process_files_LMT2_batch():
     """
@@ -152,10 +155,12 @@ def process_files_LMT2_batch():
     for i, file_to_process in enumerate(files_to_process, 1):
         file_queue.put((file_to_process, i))
 
+    gpu_queues = [(gpu_id, total_mem, free_mem, deque()) for gpu_id, total_mem, free_mem in gpu_info]
+
     max_workers = sum(free_mem // (11 * 1024**3) for gpu_id, total_mem, free_mem in gpu_info)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(worker, file_queue, gpu_info) for _ in range(max_workers)]
+        futures = [executor.submit(worker, file_queue, gpu_queues) for _ in range(max_workers)]
         concurrent.futures.wait(futures)
 
 

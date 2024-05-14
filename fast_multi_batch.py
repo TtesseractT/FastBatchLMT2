@@ -306,18 +306,17 @@ def process_json_files_in_videos(verbose=False):
 
 if __name__ == '__main__':
     try:
-        start_time = time.time()  # Record the start time
-        
+        start_time = time.time()
+        print("Starting batch processing...")
         process_files_LMT2_batch()
         cleanup_filenames()
         process_json_files_in_videos()
-        
-        end_time = time.time()  # Record the end time
-        elapsed_time = end_time - start_time  # Calculate the elapsed time
-        
+        end_time = time.time()
+        elapsed_time = end_time - start_time
         print(f"Script completed in {elapsed_time:.2f} seconds")
     except Exception as e:
-        move_and_clear_videos() # Basic cleanup on error
+        print(f"An error occurred: {e}")
+        move_and_clear_videos()
 
     # Example Useage
     # python fast_batch.py

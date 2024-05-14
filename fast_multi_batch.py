@@ -23,11 +23,13 @@ import os
 
 def get_gpu_memory_info():
     """
-    Retrieves the total and free GPU memory information for all available GPUs.
+    Retrieves the total and free GPU memory information.
+
+    This function initializes the NVIDIA Management Library (NVML), gets the memory
+    information for the first GPU device (index 0), and then shuts down NVML.
 
     Returns:
-        list: A list of tuples, where each tuple contains:
-            - gpu_index (int): The index of the GPU.
+        tuple: A tuple containing:
             - total (int): The total memory of the GPU in bytes.
             - free (int): The free memory of the GPU in bytes.
 
@@ -36,35 +38,37 @@ def get_gpu_memory_info():
     """
     pynvml.nvmlInit()
     gpu_info = []
-    for gpu_index in range(pynvml.nvmlDeviceGetCount()):
-        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+
+    for i in range(pynvml.nvmlDeviceGetCount()):
+        handle = pynvml.nvmlDeviceGetHandleByIndex(i)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        gpu_info.append((gpu_index, info.total, info.free))
+        gpu_info.append((info.total, info.free))
+
     pynvml.nvmlShutdown()
     return gpu_info
 
-def process_file(file_to_process, video_folder_name, gpu_index):
+def process_file(file_to_process, video_folder_name, gpu_id):
     """
-    Processes a video file by moving it to a processing directory, running a transcription task on a specific GPU,
-    and then organizing the processed files into a new directory.
+    Processes a video file by moving it to a processing directory, running a transcription task
+    on the specified GPU, and then organizing the processed files into a new directory.
 
     Args:
         file_to_process (str): The name of the file to be processed.
         video_folder_name (str): The name of the folder to store the processed video and related files.
-        gpu_index (int): The index of the GPU to use for processing.
+        gpu_id (int): The ID of the GPU to use for processing.
 
     Raises:
         Exception: If there is any issue during the file processing, it will print an error message
-                  and attempt to reverse any file operations.
+                   and attempt to reverse any file operations.
     """
     try:
         # Move the file to the processing directory
         shutil.move(os.path.join('Input-Videos', file_to_process), file_to_process)
-        print(f"Processing file: {file_to_process} on GPU {gpu_index}")
+        print(f"Processing file: {file_to_process}")
         filenamestatic = os.path.splitext(file_to_process)[0]
         print(filenamestatic)
 
-        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_index} --transcript-path "{filenamestatic}".json', shell=True)
+        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_id} --transcript-path "{filenamestatic}".json', shell=True)
 
         # Create a new directory for the processed video and move all related files
         new_folder_path = os.path.join('Videos', video_folder_name)
@@ -86,17 +90,19 @@ def process_file(file_to_process, video_folder_name, gpu_index):
             shutil.rmtree(os.path.join('Videos', video_folder_name))
         move_and_clear_videos()
 
-def worker(file_queue):
+def worker(file_queue, gpu_info):
     """
-    Worker function to process files from a queue.
+    Worker function to process files from a queue using available GPUs.
 
-    Continuously retrieves files from the queue and processes them until the queue is empty.
+    Continuously retrieves files from the queue and processes them using the GPU with the most available memory
+    until the queue is empty.
 
     Args:
         file_queue (queue.Queue): A queue containing files to be processed. Each item in the queue
-                                  should be a tuple where the first element is the file name and 
+                                  should be a tuple where the first element is the file name and
                                   the second element is an identifier used to create a folder name.
-    
+        gpu_info (list): A list of tuples containing (total, free) memory information for each GPU.
+
     Raises:
         queue.Empty: If the queue is empty when attempting to retrieve a file, the function breaks the loop.
     """
@@ -107,25 +113,33 @@ def worker(file_queue):
             break
 
         video_folder_name = f'Video - {file_to_process[1]}'
-        process_file(file_to_process[0], video_folder_name)
-        file_queue.task_done()
 
+        # Find the GPU with the most available memory
+        available_gpus = [(gpu_id, free_mem) for gpu_id, (total_mem, free_mem) in enumerate(gpu_info) if free_mem > 11 * 1024**3]
+        if available_gpus:
+            gpu_id, _ = max(available_gpus, key=lambda x: x[1])
+            process_file(file_to_process[0], video_folder_name, gpu_id)
+        else:
+            print("No available GPU found with sufficient memory.")
+
+        file_queue.task_done()
 def process_files_LMT2_batch():
     """
-    Processes video files in batches, utilizing available GPU memory to determine the number of concurrent processes.
+    Processes video files in batches, utilizing available GPU memory across multiple GPUs
+    to determine the number of concurrent processes.
 
-    This function retrieves the total and free GPU memory for all available GPUs, calculates the maximum number of
-    processes that can run concurrently on each GPU based on the VRAM per process, and then processes files from
-    the 'Input-Videos' directory using a thread pool executor.
+    This function retrieves the total and free GPU memory for all available GPUs, calculates the maximum number
+    of processes that can run concurrently based on the VRAM per process, and then processes files from the
+    'Input-Videos' directory using a thread pool executor and the available GPUs.
 
     Raises:
         Exception: If there is an issue with retrieving GPU memory info or processing files, it will print an error message.
     """
 
-    gpu_memory_info = get_gpu_memory_info()
+    gpu_info = get_gpu_memory_info()
 
-    minimum_mem_ofset = 5.5 * 1024**3
-    vram_per_process = minimum_mem_ofset * 2  # 11 * 1024**3  # GPU Model Size 11 GB
+    minimum_mem_offset = 5.5 * 1024**3
+    vram_per_process = minimum_mem_offset * 2  # 11 * 1024**3  # GPU Model Size 11 GB
 
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
@@ -135,16 +149,11 @@ def process_files_LMT2_batch():
     for i, file_to_process in enumerate(files_to_process, 1):
         file_queue.put((file_to_process, i))
 
-    for gpu_index, total_memory, free_memory in gpu_memory_info:
-        if total_memory > minimum_mem_ofset:
-            max_processes = int(free_memory // vram_per_process)
+    max_workers = sum(1 for total_mem, free_mem in gpu_info if free_mem > vram_per_process)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_processes) as executor:
-                futures = [executor.submit(worker, file_queue, gpu_index) for _ in range(max_processes)]
-                concurrent.futures.wait(futures)
-
-        if file_queue.empty():
-            break
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(worker, file_queue, gpu_info) for _ in range(max_workers)]
+        concurrent.futures.wait(futures)
 
 
 def cleanup_filenames():

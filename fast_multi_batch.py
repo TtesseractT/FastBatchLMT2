@@ -152,6 +152,11 @@ def process_files_LMT2_batch():
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
     num_files = len(files_to_process)
+    print(f"Number of files to process: {num_files}")
+
+    if num_files == 0:
+        print("No files found in the 'Input-Videos' directory.")
+        return
 
     file_queue = queue.Queue()
     for i, file_to_process in enumerate(files_to_process, 1):

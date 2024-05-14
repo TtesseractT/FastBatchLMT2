@@ -23,68 +23,54 @@ import os
 
 def get_gpu_memory_info():
     """
-    Retrieves the total and free GPU memory information for all GPUs.
+    Retrieves the total and free GPU memory information.
 
-    Initializes NVIDIA Management Library (NVML), gets the memory information for each GPU device, 
-    and then shuts down NVML.
+    This function initializes the NVIDIA Management Library (NVML), gets the memory
+    information for the first GPU device (index 0), and then shuts down NVML.
 
     Returns:
-        List of tuples: Each tuple contains:
+        tuple: A tuple containing:
             - total (int): The total memory of the GPU in bytes.
-            - free (int): The free memory of the GPU in bytes for each GPU.
+            - free (int): The free memory of the GPU in bytes.
+
+    Raises:
+        pynvml.NVMLError: If there is an issue with NVML initialization or querying the GPU memory info.
     """
     pynvml.nvmlInit()
-    device_count = pynvml.nvmlDeviceGetCount()
-    gpu_mem_info = []
-    for i in range(device_count):
+    gpu_count = pynvml.nvmlDeviceGetCount()
+    memory_info = []
+    for i in range(gpu_count):
         handle = pynvml.nvmlDeviceGetHandleByIndex(i)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        gpu_mem_info.append((info.total, info.free))
-        print(f"GPU {i}: Total Memory: {info.total / 1024**3:.2f} GB, Free Memory: {info.free / 1024**3:.2f} GB")
+        memory_info.append((info.total, info.free))
     pynvml.nvmlShutdown()
-    return gpu_mem_info
-
+    return memory_info
 
 def process_file(file_to_process, video_folder_name):
     """
-    Processes a video file by moving it, running a transcription task on a specified GPU, 
-    and organizing the processed files into a new directory.
+    Processes a video file by moving it to a processing directory, running a transcription task, 
+    and then organizing the processed files into a new directory.
 
     Args:
-        file_to_process (str): The file name to process.
-        video_folder_name (str): Folder to store processed video and files.
-        gpu_index (int): Index of the GPU to use for processing.
+        file_to_process (str): The name of the file to be processed.
+        video_folder_name (str): The name of the folder to store the processed video and related files.
+
+    Raises:
+        Exception: If there is any issue during the file processing, it will print an error message 
+                  and attempt to reverse any file operations.
     """
     try:
-        # Construct the processing directory path
-        processing_dir = os.path.join('Processing', video_folder_name)
-        if not os.path.exists(processing_dir):
-            os.makedirs(processing_dir)
-        
-        # Move the file to the processing directory
-        source_path = os.path.join('Input-Videos', file_to_process)
-        dest_path = os.path.join(processing_dir, file_to_process)
-        shutil.move(source_path, dest_path)
-        print(f"Moved {file_to_process} to processing directory on GPU {gpu_index}.")
-        
-        # Construct the command to process the file
-        cmd = f'insanely-fast-whisper --file-name "{dest_path}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_index} --transcript-path "{os.path.splitext(dest_path)[0]}.json"'
-        print(f"Running command: {cmd}")
-        
-        # Execute the command
-        result = subprocess.run(cmd, shell=True, capture_output=True)
-        print(f"Command output: {result.stdout.decode()}")
-        print(f"Command errors: {result.stderr.decode()}")
-        
-        if result.returncode != 0:
-            print(f"Command failed with code {result.returncode}")
-
-        # Move the processed files to the final directory
-        final_folder_path = os.path.join('Videos', video_folder_name)
-        if not os.path.exists(final_folder_path):
-            os.makedirs(final_folder_path)
-        shutil.move(dest_path, final_folder_path)
-        print(f"File processing completed. {file_to_process} moved to {final_folder_path}.")
+        shutil.move(os.path.join('Input-Videos', file_to_process), file_to_process)
+        print(f"Processing file on GPU {gpu_index}: {file_to_process}")
+        filenamestatic = os.path.splitext(file_to_process)[0]
+        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_index} --transcript-path "{filenamestatic}".json', shell=True)
+        new_folder_path = os.path.join('Videos', video_folder_name)
+        os.mkdir(new_folder_path)
+        shutil.move(file_to_process, new_folder_path)
+        output_file_base = os.path.splitext(file_to_process)[0]
+        for filename in os.listdir('.'):
+            if filename.startswith(output_file_base):
+                shutil.move(filename, new_folder_path)
 
     except Exception as e:
         print(f"Processing failed with error: {e}")
@@ -111,12 +97,11 @@ def worker(file_queue):
     """
     while not file_queue.empty():
         try:
-            file_to_process = file_queue.get_nowait()
+            file_to_process, video_folder_index, gpu_index = file_queue.get_nowait()
         except queue.Empty:
             break
-
-        video_folder_name = f'Video - {file_to_process[1]}'
-        process_file(file_to_process[0], video_folder_name)
+        video_folder_name = f'Video - {video_folder_index}'
+        process_file(file_to_process[0], video_folder_name, gpu_index)
         file_queue.task_done()
 
 def process_files_LMT2_batch():
@@ -131,47 +116,21 @@ def process_files_LMT2_batch():
         Exception: If there is an issue with retrieving GPU memory info or processing files, it will print an error message.
     """
 
-    gpu_mem_info = get_gpu_memory_info()
-    vram_per_process = 11 * 1024**3  # 11 GB per process
-    processes_info = []
-
-    for i, (total_memory, free_memory) in enumerate(gpu_mem_info):
-        if free_memory > vram_per_process:
-            max_processes = int(free_memory // vram_per_process)
-            processes_info.append((i, max_processes))
-            print(f"GPU {i} can start {max_processes} processes.")
-        else:
-            print(f"GPU {i} does not have enough free memory to start any processes.")
-
+    memory_infos = get_all_gpu_memory_info()
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
-    if not files_to_process:
-        print("No files to process.")
-        return
+    num_files = len(files_to_process)
 
+    minimum_mem_ofset = 5.5 * 1024**3  # VRAM needed per process
     file_queue = queue.Queue()
-    for file_name in files_to_process:
-        file_queue.put(file_name)
-    print(f"Loaded {file_queue.qsize()} files into the queue.")
+    for i, file_to_process in enumerate(files_to_process, 1):
+        gpu_index = next((index for index, mem in enumerate(memory_infos) if mem[1] >= minimum_mem_ofset), None)
+        if gpu_index is not None:
+            file_queue.put((file_to_process, i, gpu_index))
 
-    if file_queue.empty():
-        print("File queue is empty, no more files to process.")
-        return
-
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = []
-        for gpu_index, max_procs in processes_info:
-            for _ in range(min(max_procs, file_queue.qsize())):
-                if file_queue.empty():
-                    print("All files have been assigned for processing.")
-                    break
-                file_to_process = file_queue.get()
-                video_folder_name = f'Video - {os.path.splitext(file_to_process)[0]}'
-                print(f"Dispatching {file_to_process} to GPU {gpu_index}")
-                futures.append(executor.submit(process_file, file_to_process, video_folder_name, gpu_index))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(memory_infos)) as executor:
+        futures = [executor.submit(worker, file_queue) for _ in range(len(memory_infos))]
         concurrent.futures.wait(futures)
-        print("Processing complete.")
-
 
 
 def cleanup_filenames():

@@ -21,62 +21,57 @@ import sys
 import os
 
 
-def init_gpu():
-    """ Initializes the NVIDIA Management Library (NVML). """
-    pynvml.nvmlInit()
-
-def shutdown_gpu():
-    """ Shuts down the NVIDIA Management Library (NVML). """
-    pynvml.nvmlShutdown()
-
 def get_gpu_memory_info():
     """
-    Retrieves the total and free GPU memory information for all GPUs.
+    Retrieves the total and free GPU memory information.
+
+    This function initializes the NVIDIA Management Library (NVML), gets the memory
+    information for the first GPU device (index 0), and then shuts down NVML.
+
     Returns:
-        dict: A dictionary with GPU indices as keys and tuples of (total, free) memory in bytes as values.
+        tuple: A tuple containing:
+            - total (int): The total memory of the GPU in bytes.
+            - free (int): The free memory of the GPU in bytes.
+
+    Raises:
+        pynvml.NVMLError: If there is an issue with NVML initialization or querying the GPU memory info.
     """
-    device_count = pynvml.nvmlDeviceGetCount()
-    gpu_memory_info = {}
-    for i in range(device_count):
+    pynvml.nvmlInit()
+    gpu_count = pynvml.nvmlDeviceGetCount()
+    memory_info = {}
+    for i in range(gpu_count):
         handle = pynvml.nvmlDeviceGetHandleByIndex(i)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        gpu_memory_info[i] = (info.total, info.free)
-    return gpu_memory_info
+        memory_info[i] = (info.total, info.free)
+    pynvml.nvmlShutdown()
+    return memory_info
 
-def find_available_gpu(minimum_mem_required):
+def process_file(file_to_process, video_folder_name, device_id):
     """
-    Finds the first available GPU with at least 'minimum_mem_required' bytes of free memory.
+    Processes a video file by moving it to a processing directory, running a transcription task on the specified GPU,
+    and then organizing the processed files into a new directory.
 
-    Args:
-        minimum_mem_required (int): The minimum amount of free memory required in bytes.
-
-    Returns:
-        int: The index of the GPU if available, otherwise None.
-    """
-    gpu_memory_info = get_gpu_memory_info()
-    for gpu_index, (total, free) in gpu_memory_info.items():
-        if free >= minimum_mem_required:
-            return gpu_index
-    return None
-
-def process_file(file_to_process, video_folder_name, gpu_id):
-    """
-    Processes a video file using the specified GPU.
     Args:
         file_to_process (str): The name of the file to be processed.
         video_folder_name (str): The name of the folder to store the processed video and related files.
-        gpu_id (int): The GPU ID to use for processing.
+        device_id (int): GPU device ID to use for processing.
     """
     try:
-        print(f"Attempting to process {file_to_process} on GPU {gpu_id}")
+        # Move the file to the processing directory
         shutil.move(os.path.join('Input-Videos', file_to_process), file_to_process)
-        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_id} --transcript-path "{os.path.splitext(file_to_process)[0]}.json', shell=True)
-
+        print(f"Processing file: {file_to_process} on GPU {device_id}")
+        filenamestatic = os.path.splitext(file_to_process)[0]
+        
+        # Adjust subprocess command to use dynamic device ID
+        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {device_id} --transcript-path "{filenamestatic}".json', shell=True)
+        
+        # Create a new directory for the processed video and move all related files
         new_folder_path = os.path.join('Videos', video_folder_name)
         os.mkdir(new_folder_path)
         shutil.move(file_to_process, new_folder_path)
+        output_file_base = os.path.splitext(file_to_process)[0]
         for filename in os.listdir('.'):
-            if filename.startswith(os.path.splitext(file_to_process)[0]):
+            if filename.startswith(output_file_base):
                 shutil.move(filename, new_folder_path)
 
     except Exception as e:
@@ -88,52 +83,39 @@ def process_file(file_to_process, video_folder_name, gpu_id):
             shutil.rmtree(os.path.join('Videos', video_folder_name))
         move_and_clear_videos()
 
-def worker(file_queue):
+
+def worker(file_queue, device_id):
     """
-    Worker function to process files from a queue.
-
-    Continuously retrieves files from the queue and processes them until the queue is empty.
-
-    Args:
-        file_queue (queue.Queue): A queue containing files to be processed. Each item in the queue
-                                  should be a tuple where the first element is the file name and 
-                                  the second element is an identifier used to create a folder name.
-    
-    Raises:
-        queue.Empty: If the queue is empty when attempting to retrieve a file, the function breaks the loop.
+    Worker function to process files from a queue on a specific GPU.
     """
     while not file_queue.empty():
         try:
-            file_to_process = file_queue.get_nowait()
+            file_to_process, video_folder_name = file_queue.get_nowait()
+            process_file(file_to_process[0], f'Video - {video_folder_name}', device_id)
+            file_queue.task_done()
         except queue.Empty:
             break
 
-        video_folder_name = f'Video - {file_to_process[1]}'
-        process_file(file_to_process[0], video_folder_name)
-        file_queue.task_done()
 
 def process_files_LMT2_batch():
     """
-    Processes video files in batches, utilizing available GPU memory to determine GPU assignment.
+    Processes video files in batches, utilizing available GPU memory to determine the number of concurrent processes.
     """
-    init_gpu()  # Ensure NVML is initialized
-    minimum_mem_required = 5.5 * 1024**3  # Minimum memory required per GPU to process a file.
+    gpu_memory = get_gpu_memory_info()
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
     
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(files_to_process)) as executor:
-            futures = []
-            for file_to_process in files_to_process:
-                gpu_id = find_available_gpu(minimum_mem_required)
-                if gpu_id is not None:
-                    video_folder_name = f'Video-{os.path.splitext(file_to_process)[0]}'
-                    futures.append(executor.submit(process_file, file_to_process, video_folder_name, gpu_id))
-                else:
-                    print(f"No available GPU with enough memory to process {file_to_process}")
-            concurrent.futures.wait(futures)
-    finally:
-        shutdown_gpu()  # Clean up NVML
+    file_queue = queue.Queue()
+    for i, file_to_process in enumerate(files_to_process, 1):
+        file_queue.put((file_to_process, i))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(gpu_memory)) as executor:
+        futures = []
+        for gpu_id in gpu_memory:
+            if gpu_memory[gpu_id][1] > 5.5 * 1024**3:  # Check if there's enough free memory
+                futures.append(executor.submit(worker, file_queue, gpu_id))
+        concurrent.futures.wait(futures)
+
 
 
 def cleanup_filenames():

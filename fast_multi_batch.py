@@ -19,7 +19,7 @@ import time
 import json
 import sys
 import os
-
+import threading
 
 def get_gpu_memory_info():
     pynvml.nvmlInit()
@@ -30,6 +30,45 @@ def get_gpu_memory_info():
         gpu_info.append((info.total, info.free))
     pynvml.nvmlShutdown()
     return gpu_info
+
+# Dictionary to keep track of jobs per GPU
+jobs_per_gpu = {i: 0 for i in range(4)}  # Adjust the range based on the number of GPUs
+max_jobs_per_gpu = 7
+gpu_lock = threading.Lock()
+
+def select_gpu():
+    with gpu_lock:
+        gpu_info = get_gpu_memory_info()
+        # Select GPU based on least jobs and enough memory
+        for gpu_id, (total_mem, free_mem) in enumerate(gpu_info):
+            if jobs_per_gpu[gpu_id] < max_jobs_per_gpu and free_mem > 11 * 1024**3:
+                jobs_per_gpu[gpu_id] += 1
+                return gpu_id
+        return None
+
+def release_gpu(gpu_id):
+    with gpu_lock:
+        jobs_per_gpu[gpu_id] -= 1
+
+def worker(file_queue):
+    while not file_queue.empty():
+        file_to_process = None
+        try:
+            file_to_process = file_queue.get_nowait()
+        except queue.Empty:
+            break
+
+        gpu_id = select_gpu()
+        if gpu_id is not None:
+            video_folder_name = f'Video - {file_to_process[1]}'
+            process_file(file_to_process[0], video_folder_name, gpu_id)
+            release_gpu(gpu_id)
+        else:
+            print("No GPU currently available with sufficient memory and job capacity.")
+            if file_to_process:
+                file_queue.put(file_to_process)  # Requeue the job
+
+        file_queue.task_done()
 
 def process_file(file_to_process, video_folder_name, gpu_id):
     try:
@@ -55,37 +94,14 @@ def process_file(file_to_process, video_folder_name, gpu_id):
     except Exception as e:
         move_and_clear_videos()
 
-def worker(file_queue):
-    while not file_queue.empty():
-        try:
-            file_to_process = file_queue.get_nowait()
-        except queue.Empty:
-            break
-
-        video_folder_name = f'Video - {file_to_process[1]}'
-        gpu_info = get_gpu_memory_info()
-        available_gpus = [(gpu_id, free_mem) for gpu_id, (total_mem, free_mem) in enumerate(gpu_info) if free_mem > 11 * 1024**3]
-
-        if available_gpus:
-            gpu_id, _ = max(available_gpus, key=lambda x: x[1])
-            process_file(file_to_process[0], video_folder_name, gpu_id)
-        else:
-            print("No available GPU found with sufficient memory.")
-
-        file_queue.task_done()
-
 def process_files_LMT2_batch():
-    gpu_info = get_gpu_memory_info()
-    vram_per_process = 11 * 1024**3  # Assuming each process requires around 11 GB of VRAM
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
-    num_files = len(files_to_process)
     file_queue = queue.Queue()
     for i, file_to_process in enumerate(files_to_process, 1):
         file_queue.put((file_to_process, i))
 
-    max_workers = len(gpu_info)  # Set max workers to the number of GPUs
-
+    max_workers = sum(1 for _ in range(max_jobs_per_gpu * len(jobs_per_gpu)))  # Total possible number of concurrent jobs
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(worker, file_queue) for _ in range(max_workers)]
         concurrent.futures.wait(futures)

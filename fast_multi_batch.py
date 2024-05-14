@@ -23,15 +23,10 @@ import os
 
 def get_gpu_memory_info():
     """
-    Retrieves the total and free GPU memory information.
-
-    This function initializes the NVIDIA Management Library (NVML), gets the memory
-    information for the first GPU device (index 0), and then shuts down NVML.
+    Retrieves the total and free GPU memory information for all available GPUs.
 
     Returns:
-        tuple: A tuple containing:
-            - total (int): The total memory of the GPU in bytes.
-            - free (int): The free memory of the GPU in bytes.
+        list: A list of tuples containing (gpu_id, total, free) memory information for each GPU.
 
     Raises:
         pynvml.NVMLError: If there is an issue with NVML initialization or querying the GPU memory info.
@@ -90,7 +85,7 @@ def process_file(file_to_process, video_folder_name, gpu_id):
             shutil.rmtree(os.path.join('Videos', video_folder_name))
         move_and_clear_videos()
 
-def worker(file_queue, gpu_info):
+def worker(file_queue, gpu_queues):
     """
     Worker function to process files from a queue using available GPUs.
 
@@ -101,7 +96,7 @@ def worker(file_queue, gpu_info):
         file_queue (queue.Queue): A queue containing files to be processed. Each item in the queue
                                   should be a tuple where the first element is the file name and
                                   the second element is an identifier used to create a folder name.
-        gpu_info (list): A list of tuples containing (total, free) memory information for each GPU.
+        gpu_queues (list): A list of deques representing the queues for each GPU.
 
     Raises:
         queue.Empty: If the queue is empty when attempting to retrieve a file, the function breaks the loop.
@@ -130,7 +125,7 @@ def worker(file_queue, gpu_info):
             file_to_process = gpu_queue.popleft()
             video_folder_name = f'Video - {file_to_process[1]}'
             process_file(file_to_process[0], video_folder_name, gpu_id)
-            gpu_queues[gpu_id] = (gpu_id, total_mem, free_mem - 11 * 1024**3, gpu_queue)
+            gpu_queues[gpu_id] = (gpu_id, total_mem, free_mem - 11 * 1024**3, gpu_queue)  # Update free memory
 
 def process_files_LMT2_batch():
     """

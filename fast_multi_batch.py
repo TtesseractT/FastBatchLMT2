@@ -23,13 +23,13 @@ import os
 
 def get_gpu_memory_info():
     """
-    Retrieves the total and free GPU memory information.
+    Retrieves the total and free GPU memory information for all GPUs.
 
     This function initializes the NVIDIA Management Library (NVML), gets the memory
-    information for the first GPU device (index 0), and then shuts down NVML.
+    information for each GPU device, and then shuts down NVML.
 
     Returns:
-        tuple: A tuple containing:
+        list of tuple: Each tuple contains:
             - total (int): The total memory of the GPU in bytes.
             - free (int): The free memory of the GPU in bytes.
 
@@ -38,36 +38,42 @@ def get_gpu_memory_info():
     """
     pynvml.nvmlInit()
     gpu_count = pynvml.nvmlDeviceGetCount()
-    memory_info = {}
+    memory_info = []
     for i in range(gpu_count):
         handle = pynvml.nvmlDeviceGetHandleByIndex(i)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        memory_info[i] = (info.total, info.free)
+        memory_info.append((info.total, info.free))
     pynvml.nvmlShutdown()
     return memory_info
 
-def process_file(file_to_process, video_folder_name, device_id):
+
+def process_file(file_to_process, video_folder_name):
     """
-    Processes a video file by moving it to a processing directory, running a transcription task on the specified GPU,
+    Processes a video file by moving it to a processing directory, running a transcription task, 
     and then organizing the processed files into a new directory.
 
     Args:
         file_to_process (str): The name of the file to be processed.
         video_folder_name (str): The name of the folder to store the processed video and related files.
-        device_id (int): GPU device ID to use for processing.
+
+    Raises:
+        Exception: If there is any issue during the file processing, it will print an error message 
+                  and attempt to reverse any file operations.
     """
     try:
         # Move the file to the processing directory
         shutil.move(os.path.join('Input-Videos', file_to_process), file_to_process)
-        print(f"Processing file: {file_to_process} on GPU {device_id}")
+        print(f"Processing file: {file_to_process}")
         filenamestatic = os.path.splitext(file_to_process)[0]
+        print(filenamestatic)
         
-        # Adjust subprocess command to use dynamic device ID
-        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {device_id} --transcript-path "{filenamestatic}".json', shell=True)
+        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_id} --transcript-path "{filenamestatic}".json', shell=True)
         
         # Create a new directory for the processed video and move all related files
         new_folder_path = os.path.join('Videos', video_folder_name)
         os.mkdir(new_folder_path)
+
+        # Move the original file and all related output files
         shutil.move(file_to_process, new_folder_path)
         output_file_base = os.path.splitext(file_to_process)[0]
         for filename in os.listdir('.'):
@@ -83,39 +89,61 @@ def process_file(file_to_process, video_folder_name, device_id):
             shutil.rmtree(os.path.join('Videos', video_folder_name))
         move_and_clear_videos()
 
-
-def worker(file_queue, device_id):
+def worker(file_queue):
     """
-    Worker function to process files from a queue on a specific GPU.
+    Worker function to process files from a queue.
+
+    Continuously retrieves files from the queue and processes them until the queue is empty.
+
+    Args:
+        file_queue (queue.Queue): A queue containing files to be processed. Each item in the queue
+                                  should be a tuple where the first element is the file name and 
+                                  the second element is an identifier used to create a folder name.
+    
+    Raises:
+        queue.Empty: If the queue is empty when attempting to retrieve a file, the function breaks the loop.
     """
     while not file_queue.empty():
         try:
-            file_to_process, video_folder_name = file_queue.get_nowait()
-            process_file(file_to_process[0], f'Video - {video_folder_name}', device_id)
-            file_queue.task_done()
+            file_to_process = file_queue.get_nowait()
         except queue.Empty:
             break
 
+        video_folder_name = f'Video - {file_to_process[1]}'
+        process_file(file_to_process[0], video_folder_name, gpu_id)
+        file_queue.task_done()
 
 def process_files_LMT2_batch():
     """
     Processes video files in batches, utilizing available GPU memory to determine the number of concurrent processes.
+
+    This function retrieves the total and free GPU memory, calculates the maximum number of processes that can 
+    run concurrently based on the VRAM per process, and then processes files from the 'Input-Videos' directory 
+    using a thread pool executor.
+
+    Raises:
+        Exception: If there is an issue with retrieving GPU memory info or processing files, it will print an error message.
     """
-    gpu_memory = get_gpu_memory_info()
+
+    memory_infos = get_gpu_memory_info()
+    minimum_mem_offset = 5.5 * 1024**3
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
-    
+    num_files = len(files_to_process)
+
     file_queue = queue.Queue()
     for i, file_to_process in enumerate(files_to_process, 1):
         file_queue.put((file_to_process, i))
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(gpu_memory)) as executor:
+    with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = []
-        for gpu_id in gpu_memory:
-            if gpu_memory[gpu_id][1] > 5.5 * 1024**3:  # Check if there's enough free memory
-                futures.append(executor.submit(worker, file_queue, gpu_id))
+        for gpu_id, (total_memory, free_memory) in enumerate(memory_infos):
+            if total_memory > minimum_mem_offset:
+                vram_per_process = minimum_mem_offset * 2
+                max_processes = int(free_memory // vram_per_process)
+                for _ in range(max_processes):
+                    futures.append(executor.submit(worker, file_queue, gpu_id))
         concurrent.futures.wait(futures)
-
 
 
 def cleanup_filenames():

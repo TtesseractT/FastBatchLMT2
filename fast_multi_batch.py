@@ -83,13 +83,15 @@ def process_file(file_to_process, video_folder_name, gpu_id):
         # Create a new directory for the processed video and move all related files
         new_folder_path = os.path.join('Videos', video_folder_name)
         os.mkdir(new_folder_path)
-
-        # Move the original file and all related output files
         shutil.move(file_to_process, new_folder_path)
         output_file_base = os.path.splitext(file_to_process)[0]
         for filename in os.listdir('.'):
             if filename.startswith(output_file_base):
                 shutil.move(filename, new_folder_path)
+
+        # After moving, process JSON for this specific task
+        json_filename = f"{output_file_base}.json"
+        process_json_file(new_folder_path, json_filename)
 
     except Exception as e:
         move_and_clear_videos()
@@ -194,18 +196,12 @@ def convert_to_srt(input_path, output_path, verbose):
     with open(output_path, 'w', encoding='utf-8') as file:
         file.write(rst_string)
 
-def process_json_files_in_videos(verbose=False):
-    videos_folder = "./Videos"
-    
-    for subdir in os.listdir(videos_folder):
-        subdir_path = os.path.join(videos_folder, subdir)
-        if os.path.isdir(subdir_path):
-            for file in os.listdir(subdir_path):
-                if file.endswith('.json'):
-                    json_path = os.path.join(subdir_path, file)
-                    srt_path = os.path.join(subdir_path, os.path.splitext(file)[0] + '.srt')
-                    convert_to_srt(json_path, srt_path, verbose)
-                    print(f"Converted {json_path} to {srt_path}")
+def process_json_file(subdir_path, json_filename, verbose=False):
+    """ Convert a specific JSON file to an SRT file within its directory. """
+    json_path = os.path.join(subdir_path, json_filename)
+    srt_path = os.path.join(subdir_path, os.path.splitext(json_filename)[0] + '.srt')
+    convert_to_srt(json_path, srt_path, verbose)
+    print(f"Converted {json_path} to {srt_path}")
 
 if __name__ == '__main__':
     try:

@@ -33,13 +33,14 @@ def get_gpu_memory_info():
             - total (int): The total memory of the GPU in bytes.
             - free (int): The free memory of the GPU in bytes for each GPU.
     """
-    gpu_mem_info = []
     pynvml.nvmlInit()
     device_count = pynvml.nvmlDeviceGetCount()
+    gpu_mem_info = []
     for i in range(device_count):
         handle = pynvml.nvmlDeviceGetHandleByIndex(i)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
         gpu_mem_info.append((info.total, info.free))
+        print(f"GPU {i}: Total Memory: {info.total / 1024**3:.2f} GB, Free Memory: {info.free / 1024**3:.2f} GB")
     pynvml.nvmlShutdown()
     return gpu_mem_info
 
@@ -120,29 +121,36 @@ def process_files_LMT2_batch():
     """
 
     gpu_mem_info = get_gpu_memory_info()
-    minimum_mem_offset = 5.5 * 1024**3  # Memory offset per GPU process
+    # Assuming a VRAM requirement of 11 GB per process
+    vram_per_process = 11 * 1024**3
     processes_info = []
 
     for i, (total_memory, free_memory) in enumerate(gpu_mem_info):
-        if free_memory > minimum_mem_offset:
-            max_processes = int(free_memory // (minimum_mem_offset * 2))  # Adjust process count based on available memory
+        if free_memory > vram_per_process:
+            max_processes = int(free_memory // vram_per_process)
             processes_info.append((i, max_processes))
+            print(f"GPU {i} can start {max_processes} processes.")
+        else:
+            print(f"GPU {i} does not have enough free memory to start any processes.")
 
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
-    file_queue = queue.Queue()
+    if not files_to_process:
+        print("No files to process.")
+        return
 
+    file_queue = queue.Queue()
     for file_name in files_to_process:
         file_queue.put(file_name)
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = []
         for gpu_index, max_procs in processes_info:
-            for _ in range(max_procs):
+            for _ in range(min(max_procs, file_queue.qsize())):
                 if file_queue.empty():
                     break
                 file_to_process = file_queue.get()
-                video_folder_name = f'Video - {file_to_process}'
+                video_folder_name = f'Video - {os.path.splitext(file_to_process)[0]}'
                 futures.append(executor.submit(process_file, file_to_process, video_folder_name, gpu_index))
         concurrent.futures.wait(futures)
 

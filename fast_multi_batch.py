@@ -70,6 +70,7 @@ def worker(file_queue):
 
         file_queue.task_done()
 
+
 def process_file(file_to_process, video_folder_name, gpu_id):
     try:
         # Move the file to the processing directory

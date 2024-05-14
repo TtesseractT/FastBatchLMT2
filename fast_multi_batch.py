@@ -37,14 +37,30 @@ def get_gpu_memory_info():
         pynvml.NVMLError: If there is an issue with NVML initialization or querying the GPU memory info.
     """
     pynvml.nvmlInit()
-    gpu_count = pynvml.nvmlDeviceGetCount()
-    memory_info = []
-    for i in range(gpu_count):
+    gpu_memory_info = {}
+    device_count = pynvml.nvmlDeviceGetCount()
+    for i in range(device_count):
         handle = pynvml.nvmlDeviceGetHandleByIndex(i)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-        memory_info.append((info.total, info.free))
+        gpu_memory_info[i] = (info.total, info.free)
     pynvml.nvmlShutdown()
-    return memory_info
+    return gpu_memory_info
+
+def find_available_gpu(minimum_mem_required):
+    """
+    Finds the first available GPU with at least 'minimum_mem_required' bytes of free memory.
+
+    Args:
+        minimum_mem_required (int): The minimum amount of free memory required in bytes.
+
+    Returns:
+        int: The index of the GPU if available, otherwise None.
+    """
+    gpu_memory_info = get_gpu_memory_info()
+    for gpu_index, (total, free) in gpu_memory_info.items():
+        if free >= minimum_mem_required:
+            return gpu_index
+    return None
 
 def process_file(file_to_process, video_folder_name):
     """
@@ -61,9 +77,11 @@ def process_file(file_to_process, video_folder_name):
     """
     try:
         shutil.move(os.path.join('Input-Videos', file_to_process), file_to_process)
-        print(f"Processing file on GPU {gpu_index}: {file_to_process}")
+        print(f"Processing file: {file_to_process} on GPU {gpu_id}")
         filenamestatic = os.path.splitext(file_to_process)[0]
-        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_index} --transcript-path "{filenamestatic}".json', shell=True)
+        
+        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_id} --transcript-path "{filenamestatic}".json', shell=True)
+        
         new_folder_path = os.path.join('Videos', video_folder_name)
         os.mkdir(new_folder_path)
         shutil.move(file_to_process, new_folder_path)
@@ -97,11 +115,12 @@ def worker(file_queue):
     """
     while not file_queue.empty():
         try:
-            file_to_process, video_folder_index, gpu_index = file_queue.get_nowait()
+            file_to_process = file_queue.get_nowait()
         except queue.Empty:
             break
-        video_folder_name = f'Video - {video_folder_index}'
-        process_file(file_to_process[0], video_folder_name, gpu_index)
+
+        video_folder_name = f'Video - {file_to_process[1]}'
+        process_file(file_to_process[0], video_folder_name)
         file_queue.task_done()
 
 def process_files_LMT2_batch():
@@ -116,21 +135,18 @@ def process_files_LMT2_batch():
         Exception: If there is an issue with retrieving GPU memory info or processing files, it will print an error message.
     """
 
-    memory_infos = get_all_gpu_memory_info()
+    minimum_mem_required = 5.5 * 1024**3  # Minimum memory required per GPU to process a file.
     input_dir = 'Input-Videos'
     files_to_process = os.listdir(input_dir)
-    num_files = len(files_to_process)
-
-    minimum_mem_ofset = 5.5 * 1024**3  # VRAM needed per process
-    file_queue = queue.Queue()
-    for i, file_to_process in enumerate(files_to_process, 1):
-        gpu_index = next((index for index, mem in enumerate(memory_infos) if mem[1] >= minimum_mem_ofset), None)
-        if gpu_index is not None:
-            file_queue.put((file_to_process, i, gpu_index))
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(memory_infos)) as executor:
-        futures = [executor.submit(worker, file_queue) for _ in range(len(memory_infos))]
-        concurrent.futures.wait(futures)
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(files_to_process)) as executor:
+        for file_to_process in files_to_process:
+            gpu_id = find_available_gpu(minimum_mem_required)
+            if gpu_id is not None:
+                video_folder_name = f'Video - {file_to_process}'
+                executor.submit(process_file, file_to_process, video_folder_name, gpu_id)
+            else:
+                print(f"No available GPU with enough memory to process {file_to_process}")
 
 
 def cleanup_filenames():

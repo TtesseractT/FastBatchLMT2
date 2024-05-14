@@ -47,7 +47,7 @@ def get_gpu_memory_info():
     return memory_info
 
 
-def process_file(file_to_process, video_folder_name):
+def process_file(file_to_process, video_folder_name, gpu_id):
     """
     Processes a video file by moving it to a processing directory, running a transcription task, 
     and then organizing the processed files into a new directory.
@@ -67,7 +67,8 @@ def process_file(file_to_process, video_folder_name):
         filenamestatic = os.path.splitext(file_to_process)[0]
         print(filenamestatic)
         
-        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_id} --transcript-path "{filenamestatic}".json', shell=True)
+        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_id} --transcript-path "{filenamestatic}".json', shell=True)        
+        
         
         # Create a new directory for the processed video and move all related files
         new_folder_path = os.path.join('Videos', video_folder_name)
@@ -306,17 +307,18 @@ def process_json_files_in_videos(verbose=False):
 
 if __name__ == '__main__':
     try:
-        start_time = time.time()
-        print("Starting batch processing...")
+        start_time = time.time()  # Record the start time
+        
         process_files_LMT2_batch()
         cleanup_filenames()
         process_json_files_in_videos()
-        end_time = time.time()
-        elapsed_time = end_time - start_time
+        
+        end_time = time.time()  # Record the end time
+        elapsed_time = end_time - start_time  # Calculate the elapsed time
+        
         print(f"Script completed in {elapsed_time:.2f} seconds")
     except Exception as e:
-        print(f"An error occurred: {e}")
-        move_and_clear_videos()
+        move_and_clear_videos() # Basic cleanup on error
 
     # Example Useage
     # python fast_batch.py

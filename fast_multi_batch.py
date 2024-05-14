@@ -23,37 +23,36 @@ import os
 
 def get_gpu_memory_info():
     """
-    Retrieves the total and free GPU memory information.
+    Retrieves the total and free GPU memory information for all GPUs.
 
-    This function initializes the NVIDIA Management Library (NVML), gets the memory
-    information for the first GPU device (index 0), and then shuts down NVML.
+    Initializes NVIDIA Management Library (NVML), gets the memory information for each GPU device, 
+    and then shuts down NVML.
 
     Returns:
-        tuple: A tuple containing:
+        List of tuples: Each tuple contains:
             - total (int): The total memory of the GPU in bytes.
-            - free (int): The free memory of the GPU in bytes.
-
-    Raises:
-        pynvml.NVMLError: If there is an issue with NVML initialization or querying the GPU memory info.
+            - free (int): The free memory of the GPU in bytes for each GPU.
     """
+    gpu_mem_info = []
     pynvml.nvmlInit()
-    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-    info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    device_count = pynvml.nvmlDeviceGetCount()
+    for i in range(device_count):
+        handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        gpu_mem_info.append((info.total, info.free))
     pynvml.nvmlShutdown()
-    return info.total, info.free
+    return gpu_mem_info
+
 
 def process_file(file_to_process, video_folder_name):
     """
-    Processes a video file by moving it to a processing directory, running a transcription task, 
-    and then organizing the processed files into a new directory.
+    Processes a video file by moving it, running a transcription task on a specified GPU, 
+    and organizing the processed files into a new directory.
 
     Args:
-        file_to_process (str): The name of the file to be processed.
-        video_folder_name (str): The name of the folder to store the processed video and related files.
-
-    Raises:
-        Exception: If there is any issue during the file processing, it will print an error message 
-                  and attempt to reverse any file operations.
+        file_to_process (str): The file name to process.
+        video_folder_name (str): Folder to store processed video and files.
+        gpu_index (int): Index of the GPU to use for processing.
     """
     try:
         # Move the file to the processing directory
@@ -62,7 +61,7 @@ def process_file(file_to_process, video_folder_name):
         filenamestatic = os.path.splitext(file_to_process)[0]
         print(filenamestatic)
         
-        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id 0 --transcript-path "{filenamestatic}".json', shell=True)
+        subprocess.run(f'insanely-fast-whisper --file-name "{file_to_process}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id {gpu_index} --transcript-path "{filenamestatic}.json"', shell=True)
         
         # Create a new directory for the processed video and move all related files
         new_folder_path = os.path.join('Videos', video_folder_name)
@@ -120,25 +119,32 @@ def process_files_LMT2_batch():
         Exception: If there is an issue with retrieving GPU memory info or processing files, it will print an error message.
     """
 
-    total_memory, free_memory = get_gpu_memory_info()
+    gpu_mem_info = get_gpu_memory_info()
+    minimum_mem_offset = 5.5 * 1024**3  # Memory offset per GPU process
+    processes_info = []
 
-    minimum_mem_ofset = 5.5 * 1024**3
+    for i, (total_memory, free_memory) in enumerate(gpu_mem_info):
+        if free_memory > minimum_mem_offset:
+            max_processes = int(free_memory // (minimum_mem_offset * 2))  # Adjust process count based on available memory
+            processes_info.append((i, max_processes))
 
-    if total_memory > minimum_mem_ofset:
-        vram_per_process = minimum_mem_ofset * 2 # 11 * 1024**3  # GPU Model Size 11 GB
-        max_processes = int(free_memory // vram_per_process)
+    input_dir = 'Input-Videos'
+    files_to_process = os.listdir(input_dir)
+    file_queue = queue.Queue()
 
-        input_dir = 'Input-Videos'
-        files_to_process = os.listdir(input_dir)
-        num_files = len(files_to_process)
+    for file_name in files_to_process:
+        file_queue.put(file_name)
 
-        file_queue = queue.Queue()
-        for i, file_to_process in enumerate(files_to_process, 1):
-            file_queue.put((file_to_process, i))
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_processes) as executor:
-            futures = [executor.submit(worker, file_queue) for _ in range(max_processes)]
-            concurrent.futures.wait(futures)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+        for gpu_index, max_procs in processes_info:
+            for _ in range(max_procs):
+                if file_queue.empty():
+                    break
+                file_to_process = file_queue.get()
+                video_folder_name = f'Video - {file_to_process}'
+                futures.append(executor.submit(process_file, file_to_process, video_folder_name, gpu_index))
+        concurrent.futures.wait(futures)
 
 
 def cleanup_filenames():

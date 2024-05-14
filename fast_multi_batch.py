@@ -94,7 +94,8 @@ def process_file(file_to_process, video_folder_name, gpu_id):
         process_json_file(new_folder_path, json_filename)
 
     except Exception as e:
-        move_and_clear_videos()
+        print({e})
+        #move_and_clear_videos()
 
 def process_files_LMT2_batch():
     input_dir = 'Input-Videos'
@@ -121,7 +122,7 @@ def cleanup_filenames():
                 new_name = os.path.splitext(largest_file)[0]
                 os.rename(subdir_path, os.path.join(videos_folder, new_name))
 
-def move_and_clear_videos():
+"""def move_and_clear_videos():
     current_directory = os.path.dirname(os.path.abspath(__file__))
     target_directory = os.path.join(current_directory, 'Input-Videos')
     videos_directory = os.path.join(current_directory, 'Videos')
@@ -160,7 +161,7 @@ def move_and_clear_videos():
                 dir_path = os.path.join(root, dir)
                 print(f"Removing directory {dir_path}")
                 os.rmdir(dir_path)
-        os.rmdir(videos_directory)  # Remove the 'Videos' directory itself
+        #os.rmdir(videos_directory)  # Remove the 'Videos' directory itself"""
 
 def format_seconds(seconds):
     if seconds is None:
@@ -216,5 +217,5 @@ if __name__ == '__main__':
         
         print(f"Script completed in {elapsed_time:.2f} seconds")
     except Exception as e:
-        move_and_clear_videos() # Basic cleanup on error
+        #move_and_clear_videos() # Basic cleanup on error
 

@@ -122,10 +122,10 @@ def process_files_LMT2_batch():
 
     total_memory, free_memory = get_gpu_memory_info()
 
-    minimum_mem_ofset = 5.5 * 1024**3
+    minimum_mem_ofset = 8 * 1024**3
 
     if total_memory > minimum_mem_ofset:
-        vram_per_process = minimum_mem_ofset * 2 # 11 * 1024**3  # GPU Model Size 11 GB
+        vram_per_process = 11 * 1024**3  # GPU Model Size 11 GB
         max_processes = int(free_memory // vram_per_process)
 
         input_dir = 'Input-Videos'

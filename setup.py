@@ -18,12 +18,9 @@ except:
     subprocess.run(['pip', 'install', 'torch', 'torchvision', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu118'])
 
 # Check if Pipx is installed.
-try:
-    print("Checking pipx Install")
-    subprocess.run(['python', 'pipx', '--version'])
-except:
-    print("pipx not installed, installing")
-    subprocess.run(['pip', 'install', 'pipx'], shell=True)
+
+print("Checking Dependencies...")
+subprocess.run(['pip', 'install', 'pipx'], shell=True)
 
 subprocess.run(['pipx', 'install', 'insanely-fast-whisper'], shell=True)
 subprocess.run(['pipx', 'install', 'insanely-fast-whisper', '--force', '--pip-args="--ignore-requires-python"'], shell=True)

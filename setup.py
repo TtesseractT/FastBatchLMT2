@@ -23,7 +23,7 @@ try:
     subprocess.run(['python', 'pipx', '--version'])
 except:
     print("pipx not installed, installing")
-    subprocess.run(['pip', 'install', 'pipx'])
+    subprocess.run(['pip', 'install', 'pipx'], shell=True)
 
 subprocess.run(['pipx', 'install', 'insanely-fast-whisper'], shell=True)
 subprocess.run(['pipx', 'install', 'insanely-fast-whisper', '--force', '--pip-args="--ignore-requires-python"'], shell=True)

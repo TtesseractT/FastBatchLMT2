@@ -302,6 +302,10 @@ def process_json_files_in_videos(verbose=False):
                     print(f"Converted {json_path} to {srt_path}")
 
 if __name__ == '__main__':
+    # Create the directories if they don't exist
+    if not os.path.exists('Videos'):
+        os.mkdir('Videos')
+        
     try:
         start_time = time.time()  # Record the start time
         

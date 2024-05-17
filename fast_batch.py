@@ -124,9 +124,12 @@ def process_files_LMT2_batch():
 
     minimum_mem_ofset = 8 * 1024**3
 
-    if total_memory > minimum_mem_ofset:
+    if total_memory > minimum_mem_ofset and free_memory >= minimum_mem_ofset:
         vram_per_process = 11 * 1024**3  # GPU Model Size 11 GB
         max_processes = int(free_memory // vram_per_process)
+
+        if max_processes > 1:
+            max_processes = 1
 
         input_dir = 'Input-Videos'
         files_to_process = os.listdir(input_dir)
@@ -165,20 +168,19 @@ def cleanup_filenames():
 def move_and_clear_videos():
     """
     Moves all .mp4 files from the current directory to the 'Input-Videos' directory and clears specified file types 
-    and the 'Videos' directory.
+    and the files within the 'Videos' directory.
 
     This function performs the following steps:
     1. Creates the 'Input-Videos' directory if it does not exist.
     2. Moves all .mp4 files from the current directory to the 'Input-Videos' directory.
     3. Removes specified file types from the current directory.
-    4. Clears all files and subdirectories within the 'Videos' directory, then removes the 'Videos' directory itself.
+    4. Clears all files within the 'Videos' directory.
 
     Raises:
         Exception: If there is any issue with file operations, an exception will be raised.
     """
     current_directory = os.path.dirname(os.path.abspath(__file__))
     target_directory = os.path.join(current_directory, 'Input-Videos')
-    videos_directory = os.path.join(current_directory, 'Videos')
     extensions_to_remove = ['.json', '.srt', '.tsv', '.txt', '.vtt']
 
     # Create 'Input-Videos' directory if it doesn't exist
@@ -204,7 +206,8 @@ def move_and_clear_videos():
             print(f"Removing file {file_path}")
             os.remove(file_path)
 
-    # Clear the 'Videos' directory
+    # Clear the files within the 'Videos' directory
+    videos_directory = os.path.join(current_directory, 'Videos')
     if os.path.exists(videos_directory):
         for root, dirs, files in os.walk(videos_directory, topdown=False):
             for file in files:
@@ -213,9 +216,8 @@ def move_and_clear_videos():
                 os.remove(file_path)
             for dir in dirs:
                 dir_path = os.path.join(root, dir)
-                print(f"Removing directory {dir_path}")
-                os.rmdir(dir_path)
-        os.rmdir(videos_directory)  # Remove the 'Videos' directory itself
+                print(f"Checking Location: {dir_path}")
+
 
 def format_seconds(seconds):
     """

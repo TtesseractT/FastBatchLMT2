@@ -30,13 +30,14 @@ def download_video(url):
 # Function to convert video to audio
 def convert_video_to_audio(video_path):
     audio_path = os.path.splitext(video_path)[0] + '.wav'
-    try:
-        subprocess.run(
-            ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path],
-            check=True
-        )
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"ffmpeg failed to convert video to audio: {e}")
+    if not os.path.exists(audio_path):
+        try:
+            subprocess.run(
+                ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path],
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"ffmpeg failed to convert video to audio: {e}")
     return audio_path
 
 # Function to process the video and generate transcription
@@ -44,6 +45,11 @@ def process_video(file_path):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(TEMP_DIR, f"{file_base}.json")
+    output_srt = os.path.join(TEMP_DIR, f"{file_base}.srt")
+
+    # Check if JSON and SRT files already exist
+    if os.path.exists(output_json) and os.path.exists(output_srt):
+        return output_json, output_srt
 
     # Convert video to audio
     audio_path = convert_video_to_audio(file_path)
@@ -59,13 +65,16 @@ def process_video(file_path):
         raise RuntimeError(f"Transcription failed: {e}")
 
     # Convert JSON to SRT
-    convert_to_srt(output_json, os.path.join(TEMP_DIR, f"{file_base}.srt"))
+    convert_to_srt(output_json, output_srt)
 
     # Move output files to OUTPUT_DIR
     shutil.move(output_json, os.path.join(OUTPUT_DIR, f"{file_base}.json"))
-    shutil.move(os.path.join(TEMP_DIR, f"{file_base}.srt"), os.path.join(OUTPUT_DIR, f"{file_base}.srt"))
+    shutil.move(output_srt, os.path.join(OUTPUT_DIR, f"{file_base}.srt"))
 
-    return f"{file_base}.json", f"{file_base}.srt"
+    # Delete original video file to save space
+    os.remove(file_path)
+
+    return os.path.join(OUTPUT_DIR, f"{file_base}.json"), os.path.join(OUTPUT_DIR, f"{file_base}.srt")
 
 # Function to convert JSON to SRT
 def convert_to_srt(input_path, output_path):
@@ -111,7 +120,7 @@ def transcribe_video(url):
     video_path = download_video(url)
     json_file, srt_file = process_video(video_path)
     
-    return os.path.join(OUTPUT_DIR, json_file), os.path.join(OUTPUT_DIR, srt_file)
+    return json_file, srt_file
 
 # Gradio interface
 iface = gr.Interface(

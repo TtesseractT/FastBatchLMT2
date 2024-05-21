@@ -126,10 +126,9 @@ def transcribe_video(url, uploaded_file=None):
         os.makedirs(OUTPUT_DIR)
 
     if uploaded_file is not None:
-        video_path = uploaded_file.name
-        shutil.copy(uploaded_file.name, TEMP_DIR)
-        uploaded_file.close()
-        video_path = os.path.join(TEMP_DIR, os.path.basename(uploaded_file.name))
+        video_path = uploaded_file
+        shutil.copy(uploaded_file, TEMP_DIR)
+        video_path = os.path.join(TEMP_DIR, os.path.basename(uploaded_file))
     else:
         # Check if the URL has been processed before
         if url in processed_urls:
@@ -150,7 +149,7 @@ def transcribe_video(url, uploaded_file=None):
 # Gradio interface
 iface = gr.Interface(
     fn=transcribe_video,
-    inputs=[gr.Textbox(label="YouTube URL"), gr.File(label="Upload Video File", type="file")],
+    inputs=[gr.Textbox(label="YouTube URL"), gr.File(label="Upload Video File", type="filepath")],
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
     live=False,
 )

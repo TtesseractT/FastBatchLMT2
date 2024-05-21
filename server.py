@@ -5,6 +5,7 @@ import json
 import gradio as gr
 import yt_dlp
 import concurrent.futures
+from threading import Lock
 from urllib.parse import quote
 
 # Define global variables and paths

@@ -161,8 +161,7 @@ iface = gr.Interface(
     fn=transcribe_video,
     inputs=gr.Textbox(label="YouTube URL"),
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
-    live=False,
-    concurrency_count=MAX_THREADS  # Set concurrency count to match the thread pool size
+    live=False
 )
 
 if __name__ == "__main__":

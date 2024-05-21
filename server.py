@@ -4,15 +4,11 @@ import subprocess
 import json
 import gradio as gr
 import yt_dlp
-import concurrent.futures
-from threading import Lock
-from urllib.parse import quote
 
 # Define global variables and paths
 TEMP_DIR = "temp"
 OUTPUT_DIR = "output"
 PROCESSED_URLS_FILE = "processed_urls.json"
-MAX_THREADS = 7
 
 # Load processed URLs
 if os.path.exists(PROCESSED_URLS_FILE):
@@ -35,13 +31,12 @@ def check_ffmpeg():
 
 # Function to download video using yt-dlp
 def download_video(url):
-    encoded_url = quote(url, safe=':/')
     ydl_opts = {
         'outtmpl': os.path.join(TEMP_DIR, '%(title)s.%(ext)s'),
         'format': 'bestvideo[height<=144]+bestaudio/best',  # lowest video quality and best audio quality
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(encoded_url, download=True)
+        info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
 
 # Function to convert video to audio
@@ -121,47 +116,43 @@ def convert_to_srt(input_path, output_path):
     with open(output_path, 'w', encoding='utf-8') as file:
         file.write(rst_string)
 
-# Thread pool executor
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_THREADS)
-lock = Lock()
-
 # Function to handle the Gradio interface
-def transcribe_video(url):
+def transcribe_video(url, uploaded_file=None):
     check_ffmpeg()  # Ensure ffmpeg is installed
 
-    with lock:
-        if url in processed_urls:
-            json_file, srt_file = processed_urls[url]
-            return json_file, srt_file
-
-    # Submit the task to the thread pool
-    future = executor.submit(handle_transcription, url)
-    json_file, srt_file = future.result()
-
-    with lock:
-        processed_urls[url] = (json_file, srt_file)
-        save_processed_urls()
-
-    return json_file, srt_file
-
-# Function to handle the transcription process
-def handle_transcription(url):
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR)
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
+
+    if uploaded_file is not None:
+        video_path = uploaded_file.name
+        shutil.copy(uploaded_file.name, TEMP_DIR)
+        uploaded_file.close()
+        video_path = os.path.join(TEMP_DIR, os.path.basename(uploaded_file.name))
+    else:
+        # Check if the URL has been processed before
+        if url in processed_urls:
+            json_file, srt_file = processed_urls[url]
+            return json_file, srt_file
+
+        video_path = download_video(url)
     
-    video_path = download_video(url)
     json_file, srt_file = process_video(video_path)
+
+    # Save the processed URL and files
+    if url:
+        processed_urls[url] = (json_file, srt_file)
+        save_processed_urls()
     
     return json_file, srt_file
 
 # Gradio interface
 iface = gr.Interface(
     fn=transcribe_video,
-    inputs=gr.Textbox(label="YouTube URL"),
+    inputs=[gr.Textbox(label="YouTube URL"), gr.File(label="Upload Video File", type="file")],
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
-    live=False
+    live=False,
 )
 
 if __name__ == "__main__":

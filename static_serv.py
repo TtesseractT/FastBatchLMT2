@@ -10,15 +10,34 @@ TEMP_DIR = "temp"
 OUTPUT_DIR = "output"
 INPUT_VIDEO_DIR = "Input-Videos"
 
+# Check if ffmpeg is installed
+def check_ffmpeg():
+    try:
+        subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError("ffmpeg is not installed or not found in PATH")
+
 # Function to download video using yt-dlp
 def download_video(url):
     ydl_opts = {
         'outtmpl': os.path.join(TEMP_DIR, '%(title)s.%(ext)s'),
-        'format': 'bestvideo',
+        'format': 'bestvideo[height<=144]+bestaudio/best',  # lowest video quality and best audio quality
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
+
+# Function to convert video to audio
+def convert_video_to_audio(video_path):
+    audio_path = os.path.splitext(video_path)[0] + '.wav'
+    try:
+        subprocess.run(
+            ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path],
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"ffmpeg failed to convert video to audio: {e}")
+    return audio_path
 
 # Function to process the video and generate transcription
 def process_video(file_path):
@@ -26,8 +45,18 @@ def process_video(file_path):
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(TEMP_DIR, f"{file_base}.json")
 
+    # Convert video to audio
+    audio_path = convert_video_to_audio(file_path)
+
     # Run the transcription command
-    subprocess.run(f'insanely-fast-whisper --file-name "{file_path}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id 0 --transcript-path "{output_json}"', shell=True)
+    try:
+        subprocess.run(
+            f'insanely-fast-whisper --file-name "{audio_path}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id 0 --transcript-path "{output_json}"',
+            shell=True,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Transcription failed: {e}")
 
     # Convert JSON to SRT
     convert_to_srt(output_json, os.path.join(TEMP_DIR, f"{file_base}.srt"))
@@ -72,6 +101,8 @@ def convert_to_srt(input_path, output_path):
 
 # Function to handle the Gradio interface
 def transcribe_video(url):
+    check_ffmpeg()  # Ensure ffmpeg is installed
+
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR)
     if not os.path.exists(OUTPUT_DIR):

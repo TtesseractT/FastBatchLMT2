@@ -8,9 +8,9 @@ Gradio should have: (Frontend)
 3.  Output Download Files 
         .json
         .srt
-
-Process Outline:
-
+## #############################################################################
+Process Outline: DONE 
+## #############################################################################
 Server use yt-dlp to get the video file from the URL
     Save files in a tempory directory named the same as the input file.
     Process transcriptions using 'insanely-fast-whisper' 
@@ -25,9 +25,8 @@ Output to Gradio when completed given on the Gradio server frontend.
     Json file download link
     SRT file download link
     These files will be in the directory. 
+## #############################################################################
 
-Can we make it so the user has to click a submit button to process the request - make it have a progress loading for the interum time.
-can we also make it handle repeat requests by closing the subprocess for that task if the page is clossed when running. this will delete the files attributed to the process too.
-after the server is closed - delete all files that have been used. allowing for memory to be optimised 
+TODO: Create integration with API Key for specific web locations
 
 

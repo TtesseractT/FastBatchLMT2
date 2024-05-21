@@ -6,6 +6,7 @@ import gradio as gr
 import yt_dlp
 import concurrent.futures
 from threading import Lock
+import re
 
 # Define global variables and paths
 TEMP_DIR = "temp"
@@ -31,6 +32,10 @@ def check_ffmpeg():
         subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         raise RuntimeError("ffmpeg is not installed or not found in PATH")
+
+# Sanitize filenames to avoid issues with special characters
+def sanitize_filename(filename):
+    return re.sub(r'[^a-zA-Z0-9_\-]', '_', filename)
 
 # Function to download video using yt-dlp
 def download_video(url):
@@ -58,7 +63,7 @@ def convert_video_to_audio(video_path):
 # Function to process the video and generate transcription
 def process_video(file_path):
     file_name = os.path.basename(file_path)
-    file_base = os.path.splitext(file_name)[0]
+    file_base = sanitize_filename(os.path.splitext(file_name)[0])
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
     output_srt = os.path.join(OUTPUT_DIR, f"{file_base}.srt")
 

@@ -5,8 +5,7 @@ import json
 import gradio as gr
 import yt_dlp
 import concurrent.futures
-from threading import Lock
-import re
+from urllib.parse import quote
 
 # Define global variables and paths
 TEMP_DIR = "temp"
@@ -33,18 +32,15 @@ def check_ffmpeg():
     except subprocess.CalledProcessError as e:
         raise RuntimeError("ffmpeg is not installed or not found in PATH")
 
-# Sanitize filenames to avoid issues with special characters
-def sanitize_filename(filename):
-    return re.sub(r'[^a-zA-Z0-9_\-]', '_', filename)
-
 # Function to download video using yt-dlp
 def download_video(url):
+    encoded_url = quote(url, safe=':/')
     ydl_opts = {
         'outtmpl': os.path.join(TEMP_DIR, '%(title)s.%(ext)s'),
         'format': 'bestvideo[height<=144]+bestaudio/best',  # lowest video quality and best audio quality
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+        info = ydl.extract_info(encoded_url, download=True)
         return ydl.prepare_filename(info)
 
 # Function to convert video to audio
@@ -63,7 +59,7 @@ def convert_video_to_audio(video_path):
 # Function to process the video and generate transcription
 def process_video(file_path):
     file_name = os.path.basename(file_path)
-    file_base = sanitize_filename(os.path.splitext(file_name)[0])
+    file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
     output_srt = os.path.join(OUTPUT_DIR, f"{file_base}.srt")
 
@@ -164,7 +160,8 @@ iface = gr.Interface(
     fn=transcribe_video,
     inputs=gr.Textbox(label="YouTube URL"),
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
-    live=False
+    live=False,
+    concurrency_count=MAX_THREADS  # Set concurrency count to match the thread pool size
 )
 
 if __name__ == "__main__":

@@ -38,11 +38,16 @@ def download_and_process(url):
     temp_dir = tempfile.mkdtemp()
     video_path = os.path.join(temp_dir, "video.mp4")
     ydl_opts = {
-        'format': 'worstvideo+bestaudio/best',
-        'outtmpl': video_path,
-        'quiet': True,
-        'merge_output_format': 'mp4'
+    'format': 'worstvideo+bestaudio/best',  # Combines the worst quality video with the best quality audio
+    'outtmpl': video_path,
+    'quiet': True,
+    'merge_output_format': 'mp4',  # Ensure the output is mp4
+    'postprocessors': [{
+        'key': 'FFmpegVideoConvertor',
+        'preferedformat': 'mp4',  # Explicitly convert to mp4 if necessary
+    }]
     }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     

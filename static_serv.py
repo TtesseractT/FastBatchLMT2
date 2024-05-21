@@ -37,17 +37,14 @@ def convert_to_srt(input_path, output_path, verbose=False):
 def download_and_process(url):
     temp_dir = tempfile.mkdtemp()
     video_path = os.path.join(temp_dir, "video.mp4")
+    
+    # Using default format settings
     ydl_opts = {
-    'format': 'worstvideo+bestaudio/best',  # Combines the worst quality video with the best quality audio
-    'outtmpl': video_path,
-    'quiet': True,
-    'merge_output_format': 'mp4',  # Ensure the output is mp4
-    'postprocessors': [{
-        'key': 'FFmpegVideoConvertor',
-        'preferedformat': 'mp4',  # Explicitly convert to mp4 if necessary
-    }]
+        'outtmpl': video_path,
+        'quiet': True,
+        'merge_output_format': 'mp4'  # Ensures merged output is in mp4 format
     }
-
+    
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     
@@ -62,6 +59,7 @@ def download_and_process(url):
     convert_to_srt(json_path, srt_path, verbose=True)
     
     return temp_dir, json_path, srt_path
+
 
 def gradio_interface():
     with gr.Blocks() as demo:

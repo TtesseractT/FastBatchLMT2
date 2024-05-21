@@ -8,7 +8,19 @@ import yt_dlp
 # Define global variables and paths
 TEMP_DIR = "temp"
 OUTPUT_DIR = "output"
-INPUT_VIDEO_DIR = "Input-Videos"
+PROCESSED_URLS_FILE = "processed_urls.json"
+
+# Load processed URLs
+if os.path.exists(PROCESSED_URLS_FILE):
+    with open(PROCESSED_URLS_FILE, "r") as f:
+        processed_urls = json.load(f)
+else:
+    processed_urls = {}
+
+# Save processed URLs
+def save_processed_urls():
+    with open(PROCESSED_URLS_FILE, "w") as f:
+        json.dump(processed_urls, f)
 
 # Check if ffmpeg is installed
 def check_ffmpeg():
@@ -44,8 +56,8 @@ def convert_video_to_audio(video_path):
 def process_video(file_path):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
-    output_json = os.path.join(TEMP_DIR, f"{file_base}.json")
-    output_srt = os.path.join(TEMP_DIR, f"{file_base}.srt")
+    output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
+    output_srt = os.path.join(OUTPUT_DIR, f"{file_base}.srt")
 
     # Check if JSON and SRT files already exist
     if os.path.exists(output_json) and os.path.exists(output_srt):
@@ -67,14 +79,10 @@ def process_video(file_path):
     # Convert JSON to SRT
     convert_to_srt(output_json, output_srt)
 
-    # Move output files to OUTPUT_DIR
-    shutil.move(output_json, os.path.join(OUTPUT_DIR, f"{file_base}.json"))
-    shutil.move(output_srt, os.path.join(OUTPUT_DIR, f"{file_base}.srt"))
-
     # Delete original video file to save space
     os.remove(file_path)
 
-    return os.path.join(OUTPUT_DIR, f"{file_base}.json"), os.path.join(OUTPUT_DIR, f"{file_base}.srt")
+    return output_json, output_srt
 
 # Function to convert JSON to SRT
 def convert_to_srt(input_path, output_path):
@@ -116,9 +124,18 @@ def transcribe_video(url):
         os.makedirs(TEMP_DIR)
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
-    
+
+    # Check if the URL has been processed before
+    if url in processed_urls:
+        json_file, srt_file = processed_urls[url]
+        return json_file, srt_file
+
     video_path = download_video(url)
     json_file, srt_file = process_video(video_path)
+
+    # Save the processed URL and files
+    processed_urls[url] = (json_file, srt_file)
+    save_processed_urls()
     
     return json_file, srt_file
 

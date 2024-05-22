@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import json
+import re
 import gradio as gr
 import yt_dlp
 
@@ -29,6 +30,10 @@ def check_ffmpeg():
     except subprocess.CalledProcessError as e:
         raise RuntimeError("ffmpeg is not installed or not found in PATH")
 
+# Sanitize filename by removing special characters
+def sanitize_filename(filename):
+    return re.sub(r'[^\w\s-]', '', filename)
+
 # Function to download video using yt-dlp
 def download_video(url):
     ydl_opts = {
@@ -37,7 +42,10 @@ def download_video(url):
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        return ydl.prepare_filename(info)
+        sanitized_title = sanitize_filename(info['title'])
+        new_file_path = os.path.join(TEMP_DIR, f"{sanitized_title}.{info['ext']}")
+        os.rename(ydl.prepare_filename(info), new_file_path)
+        return new_file_path
 
 # Function to convert video to audio
 def convert_video_to_audio(video_path):
@@ -127,8 +135,10 @@ def transcribe_video(url, uploaded_file=None):
 
     if uploaded_file is not None:
         video_path = uploaded_file
-        shutil.copy(uploaded_file, TEMP_DIR)
-        video_path = os.path.join(TEMP_DIR, os.path.basename(uploaded_file))
+        sanitized_file_name = sanitize_filename(os.path.basename(uploaded_file))
+        sanitized_path = os.path.join(TEMP_DIR, sanitized_file_name)
+        shutil.copy(uploaded_file, sanitized_path)
+        video_path = sanitized_path
     else:
         # Check if the URL has been processed before
         if url in processed_urls:
@@ -149,9 +159,10 @@ def transcribe_video(url, uploaded_file=None):
 # Gradio interface
 iface = gr.Interface(
     fn=transcribe_video,
-    inputs=[gr.Textbox(label="YouTube URL"), gr.File(label="Upload Video File", type="filepath")],
+    inputs=[gr.Textbox(label="Enter A Video URL"), gr.File(label="Upload Video File", type="filepath")],
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
     live=False,
+    title="Fast LMT2 - Created by Sabian Hibbs"
 )
 
 if __name__ == "__main__":

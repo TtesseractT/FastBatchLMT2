@@ -5,7 +5,6 @@ import json
 import re
 import gradio as gr
 import yt_dlp
-from insanely_fast_whisper import WhisperModel  # Import the Whisper model
 
 # Define global variables and paths
 TEMP_DIR = "temp"
@@ -61,11 +60,8 @@ def convert_video_to_audio(video_path):
             raise RuntimeError(f"ffmpeg failed to convert video to audio: {e}")
     return audio_path
 
-# Initialize the Whisper model
-whisper_model = WhisperModel("openai/whisper-large-v3", device="cuda", compute_type="float16")
-
 # Function to process the video and generate transcription
-def process_video(file_path, whisper_model):
+def process_video(file_path):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -78,12 +74,14 @@ def process_video(file_path, whisper_model):
     # Convert video to audio
     audio_path = convert_video_to_audio(file_path)
 
-    # Run the transcription command using the loaded Whisper model
+    # Run the transcription command
     try:
-        result = whisper_model.transcribe(audio_path, task="transcribe", language="en")
-        with open(output_json, "w") as f:
-            json.dump(result, f)
-    except Exception as e:
+        subprocess.run(
+            f'insanely-fast-whisper --file-name "{audio_path}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id 0 --transcript-path "{output_json}"',
+            shell=True,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Transcription failed: {e}")
 
     # Convert JSON to SRT
@@ -149,7 +147,7 @@ def transcribe_video(url, uploaded_file=None):
 
         video_path = download_video(url)
     
-    json_file, srt_file = process_video(video_path, whisper_model)
+    json_file, srt_file = process_video(video_path)
 
     # Save the processed URL and files
     if url:

@@ -162,14 +162,7 @@ iface = gr.Interface(
     inputs=[gr.Textbox(label="Enter A Video URL"), gr.File(label="Upload Video File", type="filepath")],
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
     live=False,
-    title="Fast LMT2 - Created by Sabian Hibbs  Version: 3.25.024",
-    description="""Paste Any Video URL
-Upload Any Video
-
-Press Submit to start!
-Queue system in place (keep a look at the position)
-
-2 Hours Video = 80 Seconds wait time including pre-processing."""
+    title="Fast LMT2 - Created by Sabian Hibbs"
 )
 
 if __name__ == "__main__":

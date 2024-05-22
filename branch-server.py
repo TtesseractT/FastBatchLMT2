@@ -159,10 +159,17 @@ def transcribe_video(url, uploaded_file=None):
 # Gradio interface
 iface = gr.Interface(
     fn=transcribe_video,
-    inputs=[gr.Textbox(label="YouTube URL"), gr.File(label="Upload Video File", type="filepath")],
+    inputs=[gr.Textbox(label="Enter A Video URL"), gr.File(label="Upload Video File", type="filepath")],
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
     live=False,
-    title="Fast LMT2 - Created by Sabian Hibbs"
+    title="Fast LMT2 - Created by Sabian Hibbs  Version: 3.25.024",
+    description="""Paste Any Video URL
+Upload Any Video
+
+Press Submit to start!
+Queue system in place (keep a look at the position)
+
+2 Hours Video = 80 Seconds wait time including pre-processing."""
 )
 
 if __name__ == "__main__":

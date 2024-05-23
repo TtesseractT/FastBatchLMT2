@@ -26,7 +26,6 @@ def save_processed_urls():
 # Check if ffmpeg is installed
 def check_ffmpeg():
     try:
-        print("Checking FFMPEG TEST")
         subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         raise RuntimeError("ffmpeg is not installed or not found in PATH")
@@ -62,7 +61,7 @@ def convert_video_to_audio(video_path):
     return audio_path
 
 # Function to process the video and generate transcription
-def process_video(file_path, force_reprocess=False, delete_files_after_processing=False):
+def process_video(file_path, force_reprocess=False):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -74,11 +73,6 @@ def process_video(file_path, force_reprocess=False, delete_files_after_processin
             os.remove(output_json)
         if os.path.exists(output_srt):
             os.remove(output_srt)
-    
-    if delete_files_after_processing:
-        #   Delete the original video file after processing
-        print(f"Deleting original video file: {file_path}")
-        #   subprocess.run([f'python FileDeleter.py "{file_path}"'], shell=True)
 
     # Check if JSON and SRT files already exist
     if os.path.exists(output_json) and os.path.exists(output_srt):
@@ -138,8 +132,8 @@ def convert_to_srt(input_path, output_path):
         file.write(rst_string)
 
 # Function to handle the Gradio interface
-def transcribe_video(url, uploaded_file=None, force_reprocess=False, delete_files_after_processing=False):
-    #check_ffmpeg()  # Ensure ffmpeg is installed
+def transcribe_video(url, uploaded_file=None, force_reprocess=False):
+    check_ffmpeg()  # Ensure ffmpeg is installed
 
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR)
@@ -160,7 +154,7 @@ def transcribe_video(url, uploaded_file=None, force_reprocess=False, delete_file
 
         video_path = download_video(url)
     
-    json_file, srt_file = process_video(video_path, force_reprocess, delete_files_after_processing)
+    json_file, srt_file = process_video(video_path, force_reprocess)
 
     # Save the processed URL and files
     if url:
@@ -175,13 +169,12 @@ iface = gr.Interface(
     inputs=[
         gr.Textbox(label="Enter A Video URL"), 
         gr.File(label="Upload Video File", type="filepath"), 
-        gr.Checkbox(label="Force Reprocess"),
-        gr.Checkbox(label="Delete Files After Processing")
+        gr.Checkbox(label="Force Reprocess")
     ],
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.79 - Recent Update: Added reprocessing option to force reprocess the video.
+    description="""Version 1.0.77 - Recent Update: Added reprocessing option to force reprocess the video.
     
     Force Reprocess - will reprocess the video even if it has been processed before.
     """

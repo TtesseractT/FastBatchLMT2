@@ -27,7 +27,7 @@ def save_processed_urls():
 def check_ffmpeg():
     try:
         print("Checking FFMPEG TEST")
-        #subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         raise RuntimeError("ffmpeg is not installed or not found in PATH")
 
@@ -138,8 +138,8 @@ def convert_to_srt(input_path, output_path):
         file.write(rst_string)
 
 # Function to handle the Gradio interface
-def transcribe_video(url, uploaded_file=None, force_reprocess=False):
-    check_ffmpeg()  # Ensure ffmpeg is installed
+def transcribe_video(url, uploaded_file=None, force_reprocess=False, delete_files_after_processing=False):
+    #check_ffmpeg()  # Ensure ffmpeg is installed
 
     if not os.path.exists(TEMP_DIR):
         os.makedirs(TEMP_DIR)
@@ -160,7 +160,7 @@ def transcribe_video(url, uploaded_file=None, force_reprocess=False):
 
         video_path = download_video(url)
     
-    json_file, srt_file = process_video(video_path, force_reprocess)
+    json_file, srt_file = process_video(video_path, force_reprocess, delete_files_after_processing)
 
     # Save the processed URL and files
     if url:
@@ -181,7 +181,7 @@ iface = gr.Interface(
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.78 - Recent Update: Added reprocessing option to force reprocess the video.
+    description="""Version 1.0.79 - Recent Update: Added reprocessing option to force reprocess the video.
     
     Force Reprocess - will reprocess the video even if it has been processed before.
     """

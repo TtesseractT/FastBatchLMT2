@@ -173,7 +173,7 @@ iface = gr.Interface(
     ],
     outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
     live=False,
-    title="Fast LMT2 - Created by Sabian Hibbs"
+    title="Fast LMT2 - Created by Sabian Hibbs",
     description="Version 1.0.71 - Recent Update: Added reprocessing option to force reprocess the video."
 )
 

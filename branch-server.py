@@ -211,8 +211,6 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
             return "Success", json_file, srt_file
-        else:
-            return "Invalid Key - Check Access Key"
 
         video_path, duration = download_video(url)
 

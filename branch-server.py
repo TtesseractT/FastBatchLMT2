@@ -1,6 +1,5 @@
 import os
 import shutil
-import time
 import subprocess
 import json
 import re
@@ -48,31 +47,12 @@ def save_user_activity():
     with open(USER_ACTIVITY_FILE, "w") as f:
         json.dump(user_activity, f)
 
-def delete_files_timer(output_json, output_srt):
-    def delete_files():
-        sleep(120)
-        if os.path.exists(output_json):
-            os.remove(output_json)
-        if os.path.exists(output_srt):
-            os.remove(output_srt)
-    threading.Thread(target=delete_files).start()
-
-def update_progress_bar(start_time, estimated_total_time, progress, start_progress, end_progress, task_message):
-    while time.time() - start_time < estimated_total_time:
-        elapsed_time = time.time() - start_time
-        current_progress = start_progress + (elapsed_time / estimated_total_time) * (end_progress - start_progress)
-        progress(current_progress, task_message)
-        time.sleep(0.5)  # Update every 0.5 seconds
-    progress(end_progress, task_message)
-
-
 # Check if ffmpeg is installed
 def check_ffmpeg():
-    """try:
+    try:
         subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
-        raise RuntimeError("ffmpeg is not installed or not found in PATH")"""
-    pass
+        raise RuntimeError("ffmpeg is not installed or not found in PATH")
 
 # Sanitize filename by removing special characters
 def sanitize_filename(filename):
@@ -208,7 +188,7 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
     save_user_activity()
 
 # Function to handle the Gradio interface
-def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False, progress=gr.Progress()):
+def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False):
     if not validate_key(key):
         return "Wrong Access Key - Check Key", "", ""
 
@@ -232,27 +212,9 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
             json_file, srt_file = processed_urls[url]
             return "Success", json_file, srt_file
 
-        # Estimate progress for downloading
-        progress(0.1, "Downloading video...")
         video_path, duration = download_video(url)
-        time.sleep(5)  # Simulate download time
-
-    # Estimate times
-    formatting_time = duration / 350.0
-    transcription_time = duration * 50.0
-    total_estimated_time = 5 + formatting_time + transcription_time
-
-    # Update progress for formatting
-    start_time = time.time()
-    threading.Thread(target=update_progress_bar, args=(start_time, formatting_time, progress, 0.1, 0.6, "Formatting video...")).start()
-    time.sleep(formatting_time)
 
     json_file, srt_file = process_video(video_path, force_reprocess)
-
-    # Update progress for transcription
-    start_time = time.time()
-    threading.Thread(target=update_progress_bar, args=(start_time, transcription_time, progress, 0.6, 1.0, "Transcribing audio...")).start()
-    time.sleep(transcription_time)
 
     # Save the processed URL and files
     if url:
@@ -266,7 +228,6 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     if delete_files:
         delete_files_timer(json_file, srt_file)
 
-    progress(1.0, "Process complete")
     return "Success", json_file, srt_file
 
 
@@ -277,6 +238,16 @@ def download_progress_hook(d):
     elif d['status'] == 'finished':
         print("Download complete")
 
+def delete_files_timer(output_json, output_srt):
+    def delete_files():
+        sleep(120)
+        if os.path.exists(output_json):
+            os.remove(output_json)
+        if os.path.exists(output_srt):
+            os.remove(output_srt)
+    threading.Thread(target=delete_files).start()
+
+
 # Gradio interface
 iface = gr.Interface(
     fn=transcribe_video,
@@ -285,8 +256,8 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
-        gr.Radio(label="Audio Format", choices=["wav", "mp3", "aac"], value="wav"),
-        gr.Checkbox(label="Delete Files after 120 seconds")
+        gr.Checkbox(label="Delete Files after 120 seconds"),
+        gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
         gr.Textbox(label="Status"),

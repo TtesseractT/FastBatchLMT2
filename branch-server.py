@@ -7,6 +7,7 @@ import gradio as gr
 import yt_dlp
 import threading
 from datetime import datetime
+from time import sleep
 
 # Define global variables and paths
 TEMP_DIR = "temp"
@@ -188,9 +189,9 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
     save_user_activity()
 
 # Function to handle the Gradio interface
-def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False):
+def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False, progress=gr.Progress()):
     if not validate_key(key):
-        return "Wrong Access Key - Check Key", "", "", gr.update(value=0)
+        return "Wrong Access Key - Check Key", "", ""
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -210,18 +211,18 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
-            return "Success", json_file, srt_file, gr.update(value=100)
+            return "Success", json_file, srt_file
 
         video_path, duration = download_video(url)
+    
+    # Estimate total time for progress bar
+    estimated_time = 5 + (duration / 350) + (duration * 50)
+    progress_interval = estimated_time / 100
 
-    estimated_download_time = 5
-    estimated_ffmpeg_time = duration / 350.0
-    estimated_transcription_time = duration * 50.0
-    estimated_total_time = estimated_download_time + estimated_ffmpeg_time + estimated_transcription_time
-
-    start_time = datetime.now()
-    progress_bar = gr.update(value=0)
-    threading.Thread(target=update_progress_bar, args=(progress_bar, start_time, estimated_total_time)).start()
+    # Update progress
+    for i in range(100):
+        sleep(progress_interval)
+        progress(i+1)
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
@@ -237,9 +238,8 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     if delete_files:
         delete_files_timer(json_file, srt_file)
 
-    return "Success", json_file, srt_file, gr.update(value=100)
-
-
+    progress(100)
+    return "Success", json_file, srt_file
 
 # Function to handle video download progress
 def download_progress_hook(d):
@@ -248,6 +248,7 @@ def download_progress_hook(d):
     elif d['status'] == 'finished':
         print("Download complete")
 
+# Function to delete files after 120 seconds
 def delete_files_timer(output_json, output_srt):
     def delete_files():
         sleep(120)
@@ -256,16 +257,6 @@ def delete_files_timer(output_json, output_srt):
         if os.path.exists(output_srt):
             os.remove(output_srt)
     threading.Thread(target=delete_files).start()
-
-def update_progress_bar(progress_bar, start_time, estimated_total_time):
-    while True:
-        elapsed_time = datetime.now() - start_time
-        elapsed_seconds = elapsed_time.total_seconds()
-        progress = min(100, (elapsed_seconds / estimated_total_time) * 100)
-        progress_bar.update(progress)
-        if progress >= 100:
-            break
-        sleep(1)
 
 # Gradio interface
 iface = gr.Interface(
@@ -281,20 +272,12 @@ iface = gr.Interface(
     outputs=[
         gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
-        gr.File(label="SRT File"),
-        gr.HTML("<progress id='progress-bar' value='0' max='100'></progress><span id='progress-text'></span>")
+        gr.File(label="SRT File")
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.94 - Recent Update: Added reprocessing option to force reprocess the video.
+    description="""Version 1.0.77 - Recent Update: Added reprocessing option to force reprocess the video.
     
-    Access Keys - Added whitelist for known users:
-        ||  Tracked usage: Hours - Requests - Force Reprocesses.
-
-    Status Bar - This is a little buggy right now but will include accurate processing times when complete.
-
-    Conversion settings for uploaded files. - Only applies to uploaded files: Use WAV as default if unsure.
-
     Force Reprocess - will reprocess the video even if it has been processed before.
     """
 )

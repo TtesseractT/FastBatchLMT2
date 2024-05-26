@@ -2,5 +2,10 @@
     "1234": {
         "name": "SabianTest",
         "email": "sabian@lmt2.com"
+    },
+
+    "KB2024":{
+        "name": "KelvinB"
+        "email": "test@test.com"
     }
 }

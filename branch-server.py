@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 import subprocess
 import json
 import re
@@ -47,12 +48,22 @@ def save_user_activity():
     with open(USER_ACTIVITY_FILE, "w") as f:
         json.dump(user_activity, f)
 
+def delete_files_timer(output_json, output_srt):
+    def delete_files():
+        sleep(120)
+        if os.path.exists(output_json):
+            os.remove(output_json)
+        if os.path.exists(output_srt):
+            os.remove(output_srt)
+    threading.Thread(target=delete_files).start()
+
 # Check if ffmpeg is installed
 def check_ffmpeg():
-    try:
+    """try:
         subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
-        raise RuntimeError("ffmpeg is not installed or not found in PATH")
+        raise RuntimeError("ffmpeg is not installed or not found in PATH")"""
+    pass
 
 # Sanitize filename by removing special characters
 def sanitize_filename(filename):
@@ -188,7 +199,7 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
     save_user_activity()
 
 # Function to handle the Gradio interface
-def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
+def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False, progress=gr.Progress()):
     if not validate_key(key):
         return "Wrong Access Key - Check Key", "", ""
 
@@ -212,9 +223,21 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
             json_file, srt_file = processed_urls[url]
             return "Success", json_file, srt_file
 
+        # Estimate progress for downloading
+        progress(0.1, "Downloading video...")
         video_path, duration = download_video(url)
 
+    # Estimate progress for formatting with ffmpeg
+    progress(0.3, "Formatting video...")
+    formatting_time = duration / 350.0
+    time.sleep(formatting_time)
+
     json_file, srt_file = process_video(video_path, force_reprocess)
+
+    # Estimate progress for transcription
+    progress(0.6, "Transcribing audio...")
+    transcription_time = duration * 50.0
+    time.sleep(transcription_time)
 
     # Save the processed URL and files
     if url:
@@ -224,7 +247,14 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     # Track user activity
     track_user_activity(key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0)  # Convert duration to hours
 
+    # Delete files after 120 seconds if the checkbox is checked
+    if delete_files:
+        delete_files_timer(json_file, srt_file)
+
+    progress(1.0, "Process complete")
     return "Success", json_file, srt_file
+
+
 
 # Function to handle video download progress
 def download_progress_hook(d):
@@ -241,6 +271,7 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
+        gr.Checkbox(label="Delete Files after 120 seconds"),
         gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[

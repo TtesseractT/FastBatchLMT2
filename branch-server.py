@@ -202,8 +202,7 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
 # Function to handle the Gradio interface
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False, progress=gr.Progress()):
     if not validate_key(key):
-        yield "Wrong Access Key - Check Key", "", ""
-        return
+        return "Wrong Access Key - Check Key", "", ""
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -223,25 +222,28 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
-            yield "Success", json_file, srt_file
-            return
+            return "Success", json_file, srt_file
 
         # Estimate progress for downloading
-        yield progress(0.1, "Downloading video...")
+        progress(0.1, "Downloading video...")
         video_path, duration = download_video(url)
+        time.sleep(5)  # Simulate download time
 
     # Estimate progress for formatting with ffmpeg
     formatting_time = duration / 350.0
-    yield progress(0.3, "Formatting video...")
-    sleep(formatting_time)
+    progress(0.3, "Formatting video...")
+    for i in range(int(formatting_time * 10)):
+        time.sleep(formatting_time / 10)
+        progress(0.3 + i * 0.1 / int(formatting_time * 10), "Formatting video...")
 
-    # Process the video
     json_file, srt_file = process_video(video_path, force_reprocess)
 
     # Estimate progress for transcription
     transcription_time = duration * 50.0
-    yield progress(0.6, "Transcribing audio...")
-    sleep(transcription_time)
+    progress(0.6, "Transcribing audio...")
+    for i in range(int(transcription_time * 10)):
+        time.sleep(transcription_time / 10)
+        progress(0.6 + i * 0.4 / int(transcription_time * 10), "Transcribing audio...")
 
     # Save the processed URL and files
     if url:
@@ -255,8 +257,9 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     if delete_files:
         delete_files_timer(json_file, srt_file)
 
-    yield progress(1.0, "Process complete")
-    yield "Success", json_file, srt_file
+    progress(1.0, "Process complete")
+    return "Success", json_file, srt_file
+
 
 
 # Function to handle video download progress

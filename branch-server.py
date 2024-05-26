@@ -57,6 +57,14 @@ def delete_files_timer(output_json, output_srt):
             os.remove(output_srt)
     threading.Thread(target=delete_files).start()
 
+def update_progress_bar(start_time, estimated_total_time, progress, start_progress, end_progress, task_message):
+    while time.time() - start_time < estimated_total_time:
+        elapsed_time = time.time() - start_time
+        current_progress = start_progress + (elapsed_time / estimated_total_time) * (end_progress - start_progress)
+        progress(current_progress, task_message)
+        time.sleep(0.5)  # Update every 0.5 seconds
+    progress(end_progress, task_message)
+
 
 # Check if ffmpeg is installed
 def check_ffmpeg():
@@ -229,21 +237,22 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         video_path, duration = download_video(url)
         time.sleep(5)  # Simulate download time
 
-    # Estimate progress for formatting with ffmpeg
+    # Estimate times
     formatting_time = duration / 350.0
-    progress(0.3, "Formatting video...")
-    for i in range(int(formatting_time * 10)):
-        time.sleep(formatting_time / 10)
-        progress(0.3 + i * 0.1 / int(formatting_time * 10), "Formatting video...")
+    transcription_time = duration * 50.0
+    total_estimated_time = 5 + formatting_time + transcription_time
+
+    # Update progress for formatting
+    start_time = time.time()
+    threading.Thread(target=update_progress_bar, args=(start_time, formatting_time, progress, 0.1, 0.6, "Formatting video...")).start()
+    time.sleep(formatting_time)
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
-    # Estimate progress for transcription
-    transcription_time = duration * 50.0
-    progress(0.6, "Transcribing audio...")
-    for i in range(int(transcription_time * 10)):
-        time.sleep(transcription_time / 10)
-        progress(0.6 + i * 0.4 / int(transcription_time * 10), "Transcribing audio...")
+    # Update progress for transcription
+    start_time = time.time()
+    threading.Thread(target=update_progress_bar, args=(start_time, transcription_time, progress, 0.6, 1.0, "Transcribing audio...")).start()
+    time.sleep(transcription_time)
 
     # Save the processed URL and files
     if url:
@@ -259,6 +268,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
 
     progress(1.0, "Process complete")
     return "Success", json_file, srt_file
+
 
 # Function to handle video download progress
 def download_progress_hook(d):

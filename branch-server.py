@@ -190,7 +190,7 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
 # Function to handle the Gradio interface
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False):
     if not validate_key(key):
-        return "Wrong Access Key - Check Key", "", ""
+        return "Wrong Access Key - Check Key", "", "", gr.update(value=0)
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -210,9 +210,18 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
-            return "Success", json_file, srt_file
+            return "Success", json_file, srt_file, gr.update(value=100)
 
         video_path, duration = download_video(url)
+
+    estimated_download_time = 5
+    estimated_ffmpeg_time = duration / 350.0
+    estimated_transcription_time = duration * 50.0
+    estimated_total_time = estimated_download_time + estimated_ffmpeg_time + estimated_transcription_time
+
+    start_time = datetime.now()
+    progress_bar = gr.update(value=0)
+    threading.Thread(target=update_progress_bar, args=(progress_bar, start_time, estimated_total_time)).start()
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
@@ -228,7 +237,8 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     if delete_files:
         delete_files_timer(json_file, srt_file)
 
-    return "Success", json_file, srt_file
+    return "Success", json_file, srt_file, gr.update(value=100)
+
 
 
 # Function to handle video download progress
@@ -247,6 +257,15 @@ def delete_files_timer(output_json, output_srt):
             os.remove(output_srt)
     threading.Thread(target=delete_files).start()
 
+def update_progress_bar(progress_bar, start_time, estimated_total_time):
+    while True:
+        elapsed_time = datetime.now() - start_time
+        elapsed_seconds = elapsed_time.total_seconds()
+        progress = min(100, (elapsed_seconds / estimated_total_time) * 100)
+        progress_bar.update(progress)
+        if progress >= 100:
+            break
+        sleep(1)
 
 # Gradio interface
 iface = gr.Interface(
@@ -256,13 +275,14 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
-        gr.Checkbox(label="Delete Files after 120 seconds"),
-        gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
+        gr.Radio(label="Audio Format", choices=["wav", "mp3", "aac"], value="wav"),
+        gr.Checkbox(label="Delete Files after 120 seconds")
     ],
     outputs=[
         gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
-        gr.File(label="SRT File")
+        gr.File(label="SRT File"),
+        gr.HTML("<progress id='progress-bar' value='0' max='100'></progress>")
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",

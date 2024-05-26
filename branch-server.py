@@ -188,6 +188,25 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
     user_activity[key]["entries"].append(entry)
     save_user_activity()
 
+# Function to delete files after a timer
+def delete_files_timer(output_json, output_srt):
+    def delete_files():
+        sleep(120)
+        if os.path.exists(output_json):
+            os.remove(output_json)
+        if os.path.exists(output_srt):
+            os.remove(output_srt)
+    threading.Thread(target=delete_files).start()
+
+# Function to simulate a progress bar
+def simulate_progress_bar(duration, progress_callback):
+    total_time = 5 + (duration / 350) + (duration * 50)  # in seconds
+    progress = 0
+    while progress < 100:
+        sleep(total_time / 100)
+        progress += 1
+        progress_callback(progress)
+        
 # Function to handle the Gradio interface
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False, progress=gr.Progress()):
     if not validate_key(key):
@@ -214,15 +233,9 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
             return "Success", json_file, srt_file
 
         video_path, duration = download_video(url)
-    
-    # Estimate total time for progress bar
-    estimated_time = 5 + (duration / 350) + (duration * 50)
-    progress_interval = estimated_time / 100
 
-    # Update progress
-    for i in range(100):
-        sleep(progress_interval)
-        progress(i+1)
+    # Start progress simulation in a separate thread
+    threading.Thread(target=simulate_progress_bar, args=(duration, progress.update)).start()
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
@@ -238,7 +251,9 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     if delete_files:
         delete_files_timer(json_file, srt_file)
 
+    # Ensure progress bar goes to 100% once processing is done
     progress(100)
+
     return "Success", json_file, srt_file
 
 # Function to handle video download progress
@@ -247,16 +262,6 @@ def download_progress_hook(d):
         print(f"Downloading: {d['_percent_str']} - {d['_eta_str']} remaining")
     elif d['status'] == 'finished':
         print("Download complete")
-
-# Function to delete files after 120 seconds
-def delete_files_timer(output_json, output_srt):
-    def delete_files():
-        sleep(120)
-        if os.path.exists(output_json):
-            os.remove(output_json)
-        if os.path.exists(output_srt):
-            os.remove(output_srt)
-    threading.Thread(target=delete_files).start()
 
 # Gradio interface
 iface = gr.Interface(

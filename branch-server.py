@@ -201,7 +201,7 @@ def delete_files_timer(output_json, output_srt):
 # Function to handle the Gradio interface with progress
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False):
     if not validate_key(key):
-        return "Wrong Access Key - Check Key", "", "", 0
+        yield "Wrong Access Key - Check Key", "", "", 0
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -221,7 +221,8 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
-            return "Success", json_file, srt_file, 100
+            yield "Success", json_file, srt_file, 100
+            return
 
         video_path, duration = download_video(url)
 
@@ -240,6 +241,8 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         yield "Processing Complete", None, None, 100
 
     progress_bar = simulate_progress(total_estimated_time)
+    for status, json_file, srt_file, progress in progress_bar:
+        yield status, json_file, srt_file, progress
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
@@ -254,7 +257,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     if delete_files:
         delete_files_timer(json_file, srt_file)
 
-    return "Success", json_file, srt_file, 100
+    yield "Success", json_file, srt_file, 100
 
 # Gradio interface
 iface = gr.Interface(
@@ -271,7 +274,7 @@ iface = gr.Interface(
         gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
         gr.File(label="SRT File"),
-        gr.ProgressBar(label="Progress")
+        gr.Progress(label="Progress")
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",

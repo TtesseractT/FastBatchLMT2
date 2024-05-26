@@ -87,7 +87,7 @@ def convert_video_to_audio(video_path, audio_format='wav'):
     return audio_path
 
 # Function to process the video and generate transcription
-def process_video(file_path, force_reprocess=False, progress_callback=None):
+def process_video(file_path, force_reprocess=False):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -188,7 +188,7 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
     user_activity[key]["entries"].append(entry)
     save_user_activity()
 
-# Function to delete files after a timer
+# Function to handle file deletion after 120 seconds
 def delete_files_timer(output_json, output_srt):
     def delete_files():
         sleep(120)
@@ -198,19 +198,10 @@ def delete_files_timer(output_json, output_srt):
             os.remove(output_srt)
     threading.Thread(target=delete_files).start()
 
-# Function to simulate a progress bar
-def simulate_progress_bar(duration, progress_callback):
-    total_time = 5 + (duration / 350) + (duration * 50)  # in seconds
-    progress = 0
-    while progress < 100:
-        sleep(total_time / 100)
-        progress += 1
-        progress_callback(progress)
-        
-# Function to handle the Gradio interface
-def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False, progress=gr.Progress()):
+# Function to handle the Gradio interface with progress
+def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False):
     if not validate_key(key):
-        return "Wrong Access Key - Check Key", "", ""
+        return "Wrong Access Key - Check Key", "", "", 0
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -230,13 +221,25 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
-            return "Success", json_file, srt_file
+            return "Success", json_file, srt_file, 100
 
         video_path, duration = download_video(url)
 
-    # Start progress simulation in a separate thread
-    progress_thread = threading.Thread(target=simulate_progress_bar, args=(duration, progress.update))
-    progress_thread.start()
+    estimated_download_time = 5
+    estimated_ffmpeg_time = duration / 350
+    estimated_transcription_time = duration * 50
+    total_estimated_time = estimated_download_time + estimated_ffmpeg_time + estimated_transcription_time
+
+    def simulate_progress(total_time):
+        start_time = datetime.now()
+        while (datetime.now() - start_time).seconds < total_time:
+            elapsed_time = (datetime.now() - start_time).seconds
+            progress = int((elapsed_time / total_time) * 100)
+            yield "Processing", None, None, progress
+            sleep(1)
+        yield "Processing Complete", None, None, 100
+
+    progress_bar = simulate_progress(total_estimated_time)
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
@@ -248,22 +251,10 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     # Track user activity
     track_user_activity(key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0)  # Convert duration to hours
 
-    # Delete files after 120 seconds if the checkbox is checked
     if delete_files:
         delete_files_timer(json_file, srt_file)
 
-    # Ensure progress bar goes to 100% once processing is done
-    progress_thread.join()
-    progress.update(100)
-
-    return "Success", json_file, srt_file
-
-# Function to handle video download progress
-def download_progress_hook(d):
-    if d['status'] == 'downloading':
-        print(f"Downloading: {d['_percent_str']} - {d['_eta_str']} remaining")
-    elif d['status'] == 'finished':
-        print("Download complete")
+    return "Success", json_file, srt_file, 100
 
 # Gradio interface
 iface = gr.Interface(
@@ -279,13 +270,21 @@ iface = gr.Interface(
     outputs=[
         gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
-        gr.File(label="SRT File")
+        gr.File(label="SRT File"),
+        gr.ProgressBar(label="Progress")
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.77 - Recent Update: Added reprocessing option to force reprocess the video.
-    
-    Force Reprocess - will reprocess the video even if it has been processed before.
+    description="""Version 1.0.98 - Recent Updates:
+
+- Access Keys: Added whitelist for known users. Tracks hours, requests, and force reprocesses.
+
+- Status Bar: Currently buggy, will show accurate processing times soon.
+
+- Conversion Settings: For uploaded files, use WAV as default if unsure.
+
+- Force Reprocess: Reprocesses videos even if previously processed.
+
     """
 )
 

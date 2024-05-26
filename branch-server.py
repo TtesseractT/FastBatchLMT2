@@ -282,7 +282,7 @@ iface = gr.Interface(
         gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
         gr.File(label="SRT File"),
-        gr.HTML("<progress id='progress-bar' value='0' max='100'></progress>")
+        gr.Progress(label="Progress")
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",

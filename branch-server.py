@@ -5,6 +5,7 @@ import json
 import re
 import gradio as gr
 import yt_dlp
+import threading
 from datetime import datetime
 
 # Define global variables and paths
@@ -34,7 +35,7 @@ if os.path.exists(USER_ACTIVITY_FILE):
     with open(USER_ACTIVITY_FILE, "r") as f:
         user_activity = json.load(f)
 else:
-    user_activity = []
+    user_activity = {}
 
 # Save processed URLs
 def save_processed_urls():
@@ -44,7 +45,7 @@ def save_processed_urls():
 # Save user activity
 def save_user_activity():
     with open(USER_ACTIVITY_FILE, "w") as f:
-        json.dump(user_activity, f, indent=4)
+        json.dump(user_activity, f)
 
 # Check if ffmpeg is installed
 def check_ffmpeg():
@@ -69,7 +70,7 @@ def download_video(url, progress_callback=None):
         sanitized_title = sanitize_filename(info['title'])
         new_file_path = os.path.join(TEMP_DIR, f"{sanitized_title}.{info['ext']}")
         os.rename(ydl.prepare_filename(info), new_file_path)
-        return new_file_path, info['duration'], info['title']
+        return new_file_path, info['duration']
 
 # Function to convert video to audio
 def convert_video_to_audio(video_path, audio_format='wav'):
@@ -165,15 +166,25 @@ def validate_key(key):
     return key in whitelist
 
 # Function to track user activity
-def track_user_activity(key, video_name_or_url, duration):
-    duration_formatted = f"{int(duration // 3600):02d}:{int((duration % 3600) // 60):02d}"
+def track_user_activity(key, file_name, url, force_reprocess, duration):
     entry = {
-        "key": key,
-        "video_name_or_url": video_name_or_url,
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "duration": duration_formatted
+        "file": file_name,
+        "url": url,
+        "force_reprocess": force_reprocess,
+        "duration_hours": duration,
+        "timestamp": datetime.now().isoformat()
     }
-    user_activity.append(entry)
+
+    if key not in user_activity:
+        user_activity[key] = {
+            "total_videos": 0,
+            "total_hours": 0.0,
+            "entries": []
+        }
+    
+    user_activity[key]["total_videos"] += 1
+    user_activity[key]["total_hours"] += duration
+    user_activity[key]["entries"].append(entry)
     save_user_activity()
 
 # Function to handle the Gradio interface
@@ -195,15 +206,13 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         shutil.copy(uploaded_file, sanitized_path)
         video_path = sanitized_path
         duration = 0  # Unable to calculate duration for uploaded files
-        video_name_or_url = sanitized_file_name
     else:
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
             return "Success", json_file, srt_file
 
-        video_path, duration, title = download_video(url)
-        video_name_or_url = url
+        video_path, duration = download_video(url)
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
@@ -213,7 +222,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         save_processed_urls()
 
     # Track user activity
-    track_user_activity(key, video_name_or_url, duration)
+    track_user_activity(key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0)  # Convert duration to hours
 
     return "Success", json_file, srt_file
 

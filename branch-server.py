@@ -57,6 +57,7 @@ def delete_files_timer(output_json, output_srt):
             os.remove(output_srt)
     threading.Thread(target=delete_files).start()
 
+
 # Check if ffmpeg is installed
 def check_ffmpeg():
     """try:
@@ -201,7 +202,8 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
 # Function to handle the Gradio interface
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', delete_files=False, progress=gr.Progress()):
     if not validate_key(key):
-        return "Wrong Access Key - Check Key", "", ""
+        yield "Wrong Access Key - Check Key", "", ""
+        return
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -221,23 +223,25 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
-            return "Success", json_file, srt_file
+            yield "Success", json_file, srt_file
+            return
 
         # Estimate progress for downloading
-        progress(0.1, "Downloading video...")
+        yield progress(0.1, "Downloading video...")
         video_path, duration = download_video(url)
 
     # Estimate progress for formatting with ffmpeg
-    progress(0.3, "Formatting video...")
     formatting_time = duration / 350.0
-    time.sleep(formatting_time)
+    yield progress(0.3, "Formatting video...")
+    sleep(formatting_time)
 
+    # Process the video
     json_file, srt_file = process_video(video_path, force_reprocess)
 
     # Estimate progress for transcription
-    progress(0.6, "Transcribing audio...")
     transcription_time = duration * 50.0
-    time.sleep(transcription_time)
+    yield progress(0.6, "Transcribing audio...")
+    sleep(transcription_time)
 
     # Save the processed URL and files
     if url:
@@ -251,9 +255,8 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     if delete_files:
         delete_files_timer(json_file, srt_file)
 
-    progress(1.0, "Process complete")
-    return "Success", json_file, srt_file
-
+    yield progress(1.0, "Process complete")
+    yield "Success", json_file, srt_file
 
 
 # Function to handle video download progress
@@ -271,8 +274,8 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
-        gr.Checkbox(label="Delete Files after 120 seconds"),
-        gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
+        gr.Radio(label="Audio Format", choices=["wav", "mp3", "aac"], value="wav"),
+        gr.Checkbox(label="Delete Files after 120 seconds")
     ],
     outputs=[
         gr.Textbox(label="Status"),

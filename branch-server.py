@@ -260,8 +260,6 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     progress(1.0, "Process complete")
     return "Success", json_file, srt_file
 
-
-
 # Function to handle video download progress
 def download_progress_hook(d):
     if d['status'] == 'downloading':

@@ -250,7 +250,7 @@ iface = gr.Interface(
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.95 - Recent Update: Added reprocessing option to force reprocess the video.
+    description="""Version 1.0.96 - Recent Update: Added reprocessing option to force reprocess the video.
     
     Access Keys - Added whitelist for known users:
         ||  Tracked usage: Hours - Requests - Force Reprocesses.
@@ -264,4 +264,7 @@ iface = gr.Interface(
 )
 
 if __name__ == "__main__":
-    iface.launch(share=True)
+    iface.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    #iface.launch(server_name="0.0.0.0", server_port=8080, share=False)
+    #   Use for local testing.
+    # iface.launch(share=True) 

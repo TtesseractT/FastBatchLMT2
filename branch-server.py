@@ -5,7 +5,6 @@ import json
 import re
 import gradio as gr
 import yt_dlp
-import threading
 from datetime import datetime
 
 # Define global variables and paths
@@ -35,7 +34,7 @@ if os.path.exists(USER_ACTIVITY_FILE):
     with open(USER_ACTIVITY_FILE, "r") as f:
         user_activity = json.load(f)
 else:
-    user_activity = {}
+    user_activity = []
 
 # Save processed URLs
 def save_processed_urls():
@@ -45,7 +44,7 @@ def save_processed_urls():
 # Save user activity
 def save_user_activity():
     with open(USER_ACTIVITY_FILE, "w") as f:
-        json.dump(user_activity, f)
+        json.dump(user_activity, f, indent=4)
 
 # Check if ffmpeg is installed
 def check_ffmpeg():
@@ -70,7 +69,7 @@ def download_video(url, progress_callback=None):
         sanitized_title = sanitize_filename(info['title'])
         new_file_path = os.path.join(TEMP_DIR, f"{sanitized_title}.{info['ext']}")
         os.rename(ydl.prepare_filename(info), new_file_path)
-        return new_file_path, info['duration']
+        return new_file_path, info['duration'], info['title']
 
 # Function to convert video to audio
 def convert_video_to_audio(video_path, audio_format='wav'):
@@ -166,20 +165,21 @@ def validate_key(key):
     return key in whitelist
 
 # Function to track user activity
-def track_user_activity(key, duration):
-    if key not in user_activity:
-        user_activity[key] = {
-            "videos_processed": 0,
-            "total_duration": 0.0
-        }
-    user_activity[key]["videos_processed"] += 1
-    user_activity[key]["total_duration"] += duration
+def track_user_activity(key, video_name_or_url, duration):
+    duration_formatted = f"{int(duration // 3600):02d}:{int((duration % 3600) // 60):02d}"
+    entry = {
+        "key": key,
+        "video_name_or_url": video_name_or_url,
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "duration": duration_formatted
+    }
+    user_activity.append(entry)
     save_user_activity()
 
 # Function to handle the Gradio interface
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
     if not validate_key(key):
-        return "Invalid access key", "", ""
+        return "Wrong Access Key - Check Key", "", ""
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -195,13 +195,15 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         shutil.copy(uploaded_file, sanitized_path)
         video_path = sanitized_path
         duration = 0  # Unable to calculate duration for uploaded files
+        video_name_or_url = sanitized_file_name
     else:
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
             return "Success", json_file, srt_file
 
-        video_path, duration = download_video(url)
+        video_path, duration, title = download_video(url)
+        video_name_or_url = url
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
@@ -211,7 +213,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         save_processed_urls()
 
     # Track user activity
-    track_user_activity(key, duration / 3600.0)  # Convert duration to hours
+    track_user_activity(key, video_name_or_url, duration)
 
     return "Success", json_file, srt_file
 

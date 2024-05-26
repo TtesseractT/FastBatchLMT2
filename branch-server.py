@@ -235,7 +235,8 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         video_path, duration = download_video(url)
 
     # Start progress simulation in a separate thread
-    threading.Thread(target=simulate_progress_bar, args=(duration, progress.update)).start()
+    progress_thread = threading.Thread(target=simulate_progress_bar, args=(duration, progress.update))
+    progress_thread.start()
 
     json_file, srt_file = process_video(video_path, force_reprocess)
 
@@ -252,7 +253,8 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         delete_files_timer(json_file, srt_file)
 
     # Ensure progress bar goes to 100% once processing is done
-    progress(100)
+    progress_thread.join()
+    progress.update(100)
 
     return "Success", json_file, srt_file
 

@@ -5,11 +5,16 @@ import json
 import re
 import gradio as gr
 import yt_dlp
+import threading
+from datetime import datetime
 
 # Define global variables and paths
 TEMP_DIR = "temp"
 OUTPUT_DIR = "output"
 PROCESSED_URLS_FILE = "processed_urls.json"
+LOG_FILE = "transcription.log"
+WHITELIST_FILE = "whitelist.json"
+USER_ACTIVITY_FILE = "user_activity.json"
 
 # Load processed URLs
 if os.path.exists(PROCESSED_URLS_FILE):
@@ -18,10 +23,29 @@ if os.path.exists(PROCESSED_URLS_FILE):
 else:
     processed_urls = {}
 
+# Load whitelist
+if os.path.exists(WHITELIST_FILE):
+    with open(WHITELIST_FILE, "r") as f:
+        whitelist = json.load(f)
+else:
+    whitelist = {}
+
+# Load user activity
+if os.path.exists(USER_ACTIVITY_FILE):
+    with open(USER_ACTIVITY_FILE, "r") as f:
+        user_activity = json.load(f)
+else:
+    user_activity = {}
+
 # Save processed URLs
 def save_processed_urls():
     with open(PROCESSED_URLS_FILE, "w") as f:
         json.dump(processed_urls, f)
+
+# Save user activity
+def save_user_activity():
+    with open(USER_ACTIVITY_FILE, "w") as f:
+        json.dump(user_activity, f)
 
 # Check if ffmpeg is installed
 def check_ffmpeg():
@@ -35,21 +59,22 @@ def sanitize_filename(filename):
     return re.sub(r'[^\w\s-]', '', filename)
 
 # Function to download video using yt-dlp
-def download_video(url):
+def download_video(url, progress_callback=None):
     ydl_opts = {
         'outtmpl': os.path.join(TEMP_DIR, '%(title)s.%(ext)s'),
         'format': 'bestvideo[height<=144]+bestaudio/best',  # lowest video quality and best audio quality
+        'progress_hooks': [progress_callback] if progress_callback else []
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         sanitized_title = sanitize_filename(info['title'])
         new_file_path = os.path.join(TEMP_DIR, f"{sanitized_title}.{info['ext']}")
         os.rename(ydl.prepare_filename(info), new_file_path)
-        return new_file_path
+        return new_file_path, info['duration']
 
 # Function to convert video to audio
-def convert_video_to_audio(video_path):
-    audio_path = os.path.splitext(video_path)[0] + '.wav'
+def convert_video_to_audio(video_path, audio_format='wav'):
+    audio_path = os.path.splitext(video_path)[0] + f'.{audio_format}'
     if not os.path.exists(audio_path):
         try:
             subprocess.run(
@@ -61,7 +86,7 @@ def convert_video_to_audio(video_path):
     return audio_path
 
 # Function to process the video and generate transcription
-def process_video(file_path, force_reprocess=False):
+def process_video(file_path, force_reprocess=False, progress_callback=None):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -131,8 +156,31 @@ def convert_to_srt(input_path, output_path):
     with open(output_path, 'w', encoding='utf-8') as file:
         file.write(rst_string)
 
+# Function to log messages
+def log_message(message):
+    with open(LOG_FILE, 'a') as log_file:
+        log_file.write(f"{datetime.now()} - {message}\n")
+
+# Function to validate access key
+def validate_key(key):
+    return key in whitelist
+
+# Function to track user activity
+def track_user_activity(key, duration):
+    if key not in user_activity:
+        user_activity[key] = {
+            "videos_processed": 0,
+            "total_duration": 0.0
+        }
+    user_activity[key]["videos_processed"] += 1
+    user_activity[key]["total_duration"] += duration
+    save_user_activity()
+
 # Function to handle the Gradio interface
-def transcribe_video(url, uploaded_file=None, force_reprocess=False):
+def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
+    if not validate_key(key):
+        return "Invalid access key", "", ""
+
     check_ffmpeg()  # Ensure ffmpeg is installed
 
     if not os.path.exists(TEMP_DIR):
@@ -146,32 +194,49 @@ def transcribe_video(url, uploaded_file=None, force_reprocess=False):
         sanitized_path = os.path.join(TEMP_DIR, sanitized_file_name)
         shutil.copy(uploaded_file, sanitized_path)
         video_path = sanitized_path
+        duration = 0  # Unable to calculate duration for uploaded files
     else:
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
-            return json_file, srt_file
+            return "Success", json_file, srt_file
 
-        video_path = download_video(url)
-    
+        video_path, duration = download_video(url)
+
     json_file, srt_file = process_video(video_path, force_reprocess)
 
     # Save the processed URL and files
     if url:
         processed_urls[url] = (json_file, srt_file)
         save_processed_urls()
-    
-    return json_file, srt_file
+
+    # Track user activity
+    track_user_activity(key, duration / 3600.0)  # Convert duration to hours
+
+    return "Success", json_file, srt_file
+
+# Function to handle video download progress
+def download_progress_hook(d):
+    if d['status'] == 'downloading':
+        print(f"Downloading: {d['_percent_str']} - {d['_eta_str']} remaining")
+    elif d['status'] == 'finished':
+        print("Download complete")
 
 # Gradio interface
 iface = gr.Interface(
     fn=transcribe_video,
     inputs=[
-        gr.Textbox(label="Enter A Video URL"), 
-        gr.File(label="Upload Video File", type="filepath"), 
-        gr.Checkbox(label="Force Reprocess")
+        gr.Textbox(label="Enter Access Key"),
+        gr.Textbox(label="Enter A Video URL"),
+        gr.File(label="Upload Video File", type="filepath"),
+        gr.Checkbox(label="Force Reprocess"),
+        gr.Radio(label="Audio Format", choices=["wav", "mp3", "aac"], value="wav")
     ],
-    outputs=[gr.File(label="JSON File"), gr.File(label="SRT File")],
+    outputs=[
+        gr.Textbox(label="Status"),
+        gr.File(label="JSON File"),
+        gr.File(label="SRT File")
+    ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
     description="""Version 1.0.77 - Recent Update: Added reprocessing option to force reprocess the video.

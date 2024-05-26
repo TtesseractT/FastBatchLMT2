@@ -241,7 +241,7 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
-        gr.Radio(label="Audio Format", choices=["wav", "mp3", "aac"], value="wav")
+        gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
         gr.Textbox(label="Status"),
@@ -250,8 +250,15 @@ iface = gr.Interface(
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.77 - Recent Update: Added reprocessing option to force reprocess the video.
+    description="""Version 1.0.94 - Recent Update: Added reprocessing option to force reprocess the video.
     
+    Access Keys - Added whitelist for known users:
+        ||  Tracked usage: Hours - Requests - Force Reprocesses.
+
+    Status Bar - This is a little buggy right now but will include accurate processing times when complete.
+
+    Conversion settings for uploaded files. - Only applies to uploaded files: Use WAV as default if unsure.
+
     Force Reprocess - will reprocess the video even if it has been processed before.
     """
 )

@@ -233,10 +233,23 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         processed_urls[url] = (json_file, srt_file)
         save_processed_urls()
 
+    # Read the SRT file to get the text
+    with open(srt_file, 'r', encoding='utf-8') as f:
+        srt_content = f.read()
+
+    # Calculate total characters and total words
+    total_characters, total_words = count_words_str_file(srt_content)
+
     # Track user activity
-    track_user_activity(key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0)  # Convert duration to hours
+    track_user_activity(
+        key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0,  # Convert duration to hours
+        output_srt=srt_file, output_json=json_file, TEMP_DIR=TEMP_DIR, 
+        message="Transcription successful", video_path=video_path, 
+        total_characters=total_characters, total_words=total_words
+    )
 
     return "Success", json_file, srt_file
+
 
 # Function to handle video download progress
 def download_progress_hook(d):

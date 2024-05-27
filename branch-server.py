@@ -191,12 +191,17 @@ def track_user_activity(key, file_name, url, force_reprocess, duration, output_s
         user_activity[key] = {
             "total_videos": 0,
             "total_hours": 0.0,
+            "total_characters": 0,
+            "total_words": 0,
             "entries": []
         }
     
     user_activity[key]["total_videos"] += 1
     user_activity[key]["total_hours"] += duration
+    user_activity[key]["total_characters"] += total_characters
+    user_activity[key]["total_words"] += total_words
     user_activity[key]["entries"].append(entry)
+    
     save_user_activity()
 
 # Function to handle the Gradio interface

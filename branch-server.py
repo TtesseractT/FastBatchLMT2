@@ -7,7 +7,6 @@ import gradio as gr
 import yt_dlp
 import threading
 from datetime import datetime
-from time import sleep
 
 # Define global variables and paths
 TEMP_DIR = "temp"
@@ -87,7 +86,7 @@ def convert_video_to_audio(video_path, audio_format='wav'):
     return audio_path
 
 # Function to process the video and generate transcription
-def process_video(file_path, duration, force_reprocess=False, progress_callback=None):
+def process_video(file_path, force_reprocess=False, progress_callback=None):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -106,28 +105,6 @@ def process_video(file_path, duration, force_reprocess=False, progress_callback=
 
     # Convert video to audio
     audio_path = convert_video_to_audio(file_path)
-
-    # Estimate processing times
-    download_time = 5  # seconds
-    format_time = duration / 350  # seconds
-    transcription_time = duration * 50  # seconds
-
-    total_time = download_time + format_time + transcription_time
-    start_time = datetime.now()
-
-    # Simulated progress update function
-    def update_progress():
-        while True:
-            elapsed_time = (datetime.now() - start_time).total_seconds()
-            progress = min(elapsed_time / total_time, 1.0)
-            if progress_callback:
-                progress_callback(progress * 100)
-            if progress >= 1.0:
-                break
-            sleep(1)
-
-    # Start progress update in a separate thread
-    threading.Thread(target=update_progress).start()
 
     # Run the transcription command
     try:
@@ -179,6 +156,11 @@ def convert_to_srt(input_path, output_path):
     with open(output_path, 'w', encoding='utf-8') as file:
         file.write(rst_string)
 
+def count_words_str_file(rst_string):
+    total_characters = len(rst_string)
+    total_words = len(rst_string.split())
+    return total_characters, total_words
+
 # Function to log messages
 def log_message(message):
     with open(LOG_FILE, 'a') as log_file:
@@ -189,13 +171,20 @@ def validate_key(key):
     return key in whitelist
 
 # Function to track user activity
-def track_user_activity(key, file_name, url, force_reprocess, duration):
+def track_user_activity(key, file_name, url, force_reprocess, duration, output_srt, output_json, TEMP_DIR, message, video_path, total_characters, total_words):
     entry = {
         "file": file_name,
         "url": url,
         "force_reprocess": force_reprocess,
         "duration_hours": duration,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "total_characters": total_characters,
+        "total_words": total_words,
+        "output_srt": output_srt,
+        "output_json": output_json,
+        "temp_dir": TEMP_DIR,
+        "message": message,
+        "video_path": video_path
     }
 
     if key not in user_activity:
@@ -211,7 +200,7 @@ def track_user_activity(key, file_name, url, force_reprocess, duration):
     save_user_activity()
 
 # Function to handle the Gradio interface
-def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav', progress=gr.Progress(track_tqdm=True)):
+def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
     if not validate_key(key):
         return "Wrong Access Key - Check Key", "", ""
 
@@ -235,9 +224,9 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
             json_file, srt_file = processed_urls[url]
             return "Success", json_file, srt_file
 
-        video_path, duration = download_video(url, lambda p: progress(0, 5, p))
+        video_path, duration = download_video(url)
 
-    json_file, srt_file = process_video(video_path, duration, force_reprocess, lambda p: progress(5, 100, p))
+    json_file, srt_file = process_video(video_path, force_reprocess)
 
     # Save the processed URL and files
     if url:

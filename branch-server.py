@@ -170,8 +170,21 @@ def log_message(message):
 def validate_key(key):
     return key in whitelist
 
+def get_audio_metrics(audio_path):
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=bit_rate,sample_rate", "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        bit_rate, sample_rate = result.stdout.strip().split()
+        return int(bit_rate) // 1000, int(sample_rate)  # Convert bit_rate to kbps
+    except Exception as e:
+        raise RuntimeError(f"Failed to get audio metrics: {e}")
+
 # Function to track user activity
-def track_user_activity(key, file_name, url, force_reprocess, duration, output_srt, output_json, TEMP_DIR, message, video_path, total_characters, total_words):
+def track_user_activity(key, file_name, url, force_reprocess, duration, output_srt, output_json, TEMP_DIR, message, video_path, total_characters, total_words, processing_time, video_format, file_size, transcription_model, audio_bitrate, audio_sample_rate):
     entry = {
         "file": file_name,
         "url": url,
@@ -184,7 +197,13 @@ def track_user_activity(key, file_name, url, force_reprocess, duration, output_s
         "output_json": output_json,
         "temp_dir": TEMP_DIR,
         "message": message,
-        "video_path": video_path
+        "video_path": video_path,
+        "processing_time_seconds": processing_time,
+        "video_format": video_format,
+        "file_size_bytes": file_size,
+        "transcription_model": transcription_model,
+        "audio_bitrate_kbps": audio_bitrate,
+        "audio_sample_rate_hz": audio_sample_rate
     }
 
     if key not in user_activity:
@@ -216,6 +235,11 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
+    api_call_timestamp = datetime.now().isoformat()
+    start_time = time.time()
+    video_format = None
+    file_size = None
+
     if uploaded_file is not None:
         video_path = uploaded_file
         sanitized_file_name = sanitize_filename(os.path.basename(uploaded_file))
@@ -223,6 +247,8 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         shutil.copy(uploaded_file, sanitized_path)
         video_path = sanitized_path
         duration = 0  # Unable to calculate duration for uploaded files
+        video_format = os.path.splitext(uploaded_file)[1][1:]
+        file_size = os.path.getsize(uploaded_file)
     else:
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
@@ -230,13 +256,11 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
             return "Success", json_file, srt_file
 
         video_path, duration = download_video(url)
+        video_format = os.path.splitext(video_path)[1][1:]
+        file_size = os.path.getsize(video_path)
 
     json_file, srt_file = process_video(video_path, force_reprocess)
-
-    # Save the processed URL and files
-    if url:
-        processed_urls[url] = (json_file, srt_file)
-        save_processed_urls()
+    processing_time = time.time() - start_time
 
     # Read the SRT file to get the text
     with open(srt_file, 'r', encoding='utf-8') as f:
@@ -245,12 +269,19 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     # Calculate total characters and total words
     total_characters, total_words = count_words_str_file(srt_content)
 
+    # Get audio metrics
+    audio_path = convert_video_to_audio(video_path)
+    audio_bitrate, audio_sample_rate = get_audio_metrics(audio_path)
+
     # Track user activity
     track_user_activity(
         key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0,  # Convert duration to hours
         output_srt=srt_file, output_json=json_file, TEMP_DIR=TEMP_DIR, 
         message="Transcription successful", video_path=video_path, 
-        total_characters=total_characters, total_words=total_words
+        total_characters=total_characters, total_words=total_words,
+        processing_time=processing_time, video_format=video_format, 
+        file_size=file_size, transcription_model="openai/whisper-large-v3",
+        audio_bitrate=audio_bitrate, audio_sample_rate=audio_sample_rate
     )
 
     return "Success", json_file, srt_file

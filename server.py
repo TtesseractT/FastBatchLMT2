@@ -156,6 +156,11 @@ def convert_to_srt(input_path, output_path):
     with open(output_path, 'w', encoding='utf-8') as file:
         file.write(rst_string)
 
+def count_words_str_file(rst_string):
+    total_characters = len(rst_string)
+    total_words = len(rst_string.split())
+    return total_characters, total_words
+
 # Function to log messages
 def log_message(message):
     with open(LOG_FILE, 'a') as log_file:
@@ -166,25 +171,37 @@ def validate_key(key):
     return key in whitelist
 
 # Function to track user activity
-def track_user_activity(key, file_name, url, force_reprocess, duration):
+def track_user_activity(key, file_name, url, force_reprocess, duration, output_srt, output_json, TEMP_DIR, message, video_path, total_characters, total_words):
     entry = {
         "file": file_name,
         "url": url,
         "force_reprocess": force_reprocess,
         "duration_hours": duration,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "total_characters": total_characters,
+        "total_words": total_words,
+        "output_srt": output_srt,
+        "output_json": output_json,
+        "temp_dir": TEMP_DIR,
+        "message": message,
+        "video_path": video_path
     }
 
     if key not in user_activity:
         user_activity[key] = {
             "total_videos": 0,
             "total_hours": 0.0,
+            "total_characters": 0,
+            "total_words": 0,
             "entries": []
         }
     
     user_activity[key]["total_videos"] += 1
     user_activity[key]["total_hours"] += duration
+    user_activity[key]["total_characters"] += total_characters
+    user_activity[key]["total_words"] += total_words
     user_activity[key]["entries"].append(entry)
+    
     save_user_activity()
 
 # Function to handle the Gradio interface
@@ -221,10 +238,23 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         processed_urls[url] = (json_file, srt_file)
         save_processed_urls()
 
+    # Read the SRT file to get the text
+    with open(srt_file, 'r', encoding='utf-8') as f:
+        srt_content = f.read()
+
+    # Calculate total characters and total words
+    total_characters, total_words = count_words_str_file(srt_content)
+
     # Track user activity
-    track_user_activity(key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0)  # Convert duration to hours
+    track_user_activity(
+        key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0,  # Convert duration to hours
+        output_srt=srt_file, output_json=json_file, TEMP_DIR=TEMP_DIR, 
+        message="Transcription successful", video_path=video_path, 
+        total_characters=total_characters, total_words=total_words
+    )
 
     return "Success", json_file, srt_file
+
 
 # Function to handle video download progress
 def download_progress_hook(d):
@@ -250,7 +280,7 @@ iface = gr.Interface(
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.98 - Recent Updates:
+    description="""Version 1.0.118 - Recent Updates:
 
 - Access Keys: Added whitelist for known users. Tracks hours, requests, and force reprocesses.
 

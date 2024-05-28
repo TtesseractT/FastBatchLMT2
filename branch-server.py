@@ -8,7 +8,6 @@ import gradio as gr
 import yt_dlp
 import threading
 from datetime import datetime
-import queue
 
 # Define global variables and paths
 TEMP_DIR = "temp"
@@ -17,7 +16,6 @@ PROCESSED_URLS_FILE = "processed_urls.json"
 LOG_FILE = "transcription.log"
 WHITELIST_FILE = "whitelist.json"
 USER_ACTIVITY_FILE = "user_activity.json"
-status_queue = queue.Queue()
 
 # Load processed URLs
 if os.path.exists(PROCESSED_URLS_FILE):
@@ -62,10 +60,11 @@ def sanitize_filename(filename):
     return re.sub(r'[^\w\s-]', '', filename)
 
 # Function to download video using yt-dlp
-def download_video(url):
+def download_video(url, progress_callback=None):
     ydl_opts = {
         'outtmpl': os.path.join(TEMP_DIR, '%(title)s.%(ext)s'),
-        'format': 'bestvideo[height<=144]+bestaudio/best'  # lowest video quality and best audio quality
+        'format': 'bestvideo[height<=144]+bestaudio/best',  # lowest video quality and best audio quality
+        'progress_hooks': [progress_callback] if progress_callback else []
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -79,23 +78,16 @@ def convert_video_to_audio(video_path, audio_format='wav'):
     audio_path = os.path.splitext(video_path)[0] + f'.{audio_format}'
     if not os.path.exists(audio_path):
         try:
-            run_command(["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path])
-        except RuntimeError as e:
+            subprocess.run(
+                ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path],
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
             raise RuntimeError(f"ffmpeg failed to convert video to audio: {e}")
     return audio_path
 
-# Function to run commands and capture output in real-time
-def run_command(command):
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-    for line in process.stdout:
-        status_queue.put(line.strip())
-    process.stdout.close()
-    process.wait()
-    if process.returncode != 0:
-        raise RuntimeError(f"Command {' '.join(command)} failed with return code {process.returncode}")
-
 # Function to process the video and generate transcription
-def process_video(file_path, force_reprocess=False):
+def process_video(file_path, force_reprocess=False, progress_callback=None):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -117,11 +109,12 @@ def process_video(file_path, force_reprocess=False):
 
     # Run the transcription command
     try:
-        run_command([
-            'insanely-fast-whisper', '--file-name', audio_path, '--model-name', 'openai/whisper-large-v3',
-            '--task', 'transcribe', '--language', 'en', '--device-id', '0', '--transcript-path', output_json
-        ])
-    except RuntimeError as e:
+        subprocess.run(
+            f'insanely-fast-whisper --file-name "{audio_path}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id 0 --transcript-path "{output_json}"',
+            shell=True,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Transcription failed: {e}")
 
     # Convert JSON to SRT
@@ -247,8 +240,7 @@ def get_user_stats(key):
 # Function to handle the Gradio interface
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
     if not validate_key(key):
-        status_queue.put("Wrong Access Key - Check Key")
-        return "", "", ""
+        return "Wrong Access Key - Check Key", "", ""
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -262,69 +254,61 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
     video_format = None
     file_size = None
 
-    try:
-        if uploaded_file is not None:
-            video_path = uploaded_file
-            sanitized_file_name = sanitize_filename(os.path.basename(uploaded_file))
-            sanitized_path = os.path.join(TEMP_DIR, sanitized_file_name)
-            shutil.copy(uploaded_file, sanitized_path)
-            video_path = sanitized_path
-            duration = 0  # Unable to calculate duration for uploaded files
-            video_format = os.path.splitext(uploaded_file)[1][1:]
-            file_size = os.path.getsize(uploaded_file)
-        else:
-            # Check if the URL has been processed before
-            if url in processed_urls and not force_reprocess:
-                json_file, srt_file = processed_urls[url]
-                return "Success", json_file, srt_file
+    if uploaded_file is not None:
+        video_path = uploaded_file
+        sanitized_file_name = sanitize_filename(os.path.basename(uploaded_file))
+        sanitized_path = os.path.join(TEMP_DIR, sanitized_file_name)
+        shutil.copy(uploaded_file, sanitized_path)
+        video_path = sanitized_path
+        duration = 0  # Unable to calculate duration for uploaded files
+        video_format = os.path.splitext(uploaded_file)[1][1:]
+        file_size = os.path.getsize(uploaded_file)
+    else:
+        # Check if the URL has been processed before
+        if url in processed_urls and not force_reprocess:
+            json_file, srt_file = processed_urls[url]
+            return "Success", json_file, srt_file
 
-            status_queue.put("Downloading video...")
-            video_path, duration = download_video(url)
-            video_format = os.path.splitext(video_path)[1][1:]
-            file_size = os.path.getsize(video_path)
+        video_path, duration = download_video(url)
+        video_format = os.path.splitext(video_path)[1][1:]
+        file_size = os.path.getsize(video_path)
 
-        status_queue.put("Processing video...")
-        json_file, srt_file = process_video(video_path, force_reprocess)
-        processing_time = time.time() - start_time
+    json_file, srt_file = process_video(video_path, force_reprocess)
+    processing_time = time.time() - start_time
 
-        # Read the SRT file to get the text
-        with open(srt_file, 'r', encoding='utf-8') as f:
-            srt_content = f.read()
+    # Read the SRT file to get the text
+    with open(srt_file, 'r', encoding='utf-8') as f:
+        srt_content = f.read()
 
-        # Calculate total characters and total words
-        total_characters, total_words = count_words_str_file(srt_content)
+    # Calculate total characters and total words
+    total_characters, total_words = count_words_str_file(srt_content)
 
-        # Get audio metrics
-        audio_path = convert_video_to_audio(video_path)
-        audio_bitrate, audio_sample_rate = get_audio_metrics(audio_path)
+    # Get audio metrics
+    audio_path = convert_video_to_audio(video_path)
+    audio_bitrate, audio_sample_rate = get_audio_metrics(audio_path)
 
-        # Track user activity
-        track_user_activity(
-            key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0,  # Convert duration to hours
-            output_srt=srt_file, output_json=json_file, TEMP_DIR=TEMP_DIR, 
-            message="Transcription successful", video_path=video_path, 
-            total_characters=total_characters, total_words=total_words,
-            processing_time=processing_time, video_format=video_format, 
-            file_size=file_size, transcription_model="openai/whisper-large-v3",
-            audio_bitrate=audio_bitrate, audio_sample_rate=audio_sample_rate
-        )
+    # Track user activity
+    track_user_activity(
+        key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0,  # Convert duration to hours
+        output_srt=srt_file, output_json=json_file, TEMP_DIR=TEMP_DIR, 
+        message="Transcription successful", video_path=video_path, 
+        total_characters=total_characters, total_words=total_words,
+        processing_time=processing_time, video_format=video_format, 
+        file_size=file_size, transcription_model="openai/whisper-large-v3",
+        audio_bitrate=audio_bitrate, audio_sample_rate=audio_sample_rate
+    )
 
-        status_queue.put("Transcription successful")
-        return "Success", json_file, srt_file
-    except Exception as e:
-        status_queue.put(f"Error: {str(e)}")
-        return "", "", ""
+    return "Success", json_file, srt_file
 
-# Function to get status updates from the queue
-def get_status():
-    while True:
-        try:
-            status = status_queue.get_nowait()
-        except queue.Empty:
-            status = ""
-        yield status
 
-# Gradio interface for transcription
+# Function to handle video download progress
+def download_progress_hook(d):
+    if d['status'] == 'downloading':
+        print(f"Downloading: {d['_percent_str']} - {d['_eta_str']} remaining")
+    elif d['status'] == 'finished':
+        print("Download complete")
+
+# Gradio interface
 iface = gr.Interface(
     fn=transcribe_video,
     inputs=[
@@ -335,7 +319,8 @@ iface = gr.Interface(
         gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
-        gr.Textbox(label="Status", interactive=False, elem_id="status"),
+        #   :TODO: dont need the status till the loading bar is implemented correctly :TODO:
+        #gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
         gr.File(label="SRT File")
     ],
@@ -354,7 +339,7 @@ iface = gr.Interface(
     """
 )
 
-# Gradio interface for showing user stats
+# Add a new Gradio interface for showing user stats
 stats_interface = gr.Interface(
     fn=get_user_stats,
     inputs=[gr.Textbox(label="Enter Access Key")],
@@ -367,21 +352,5 @@ stats_interface = gr.Interface(
 # Combine both interfaces
 combined_interface = gr.TabbedInterface([iface, stats_interface], ["Transcribe Video", "Show User Stats"])
 
-# Function to update status textbox
-def update_status():
-    status_generator = get_status()
-    status_lines = []
-    while True:
-        status = next(status_generator)
-        if status:
-            status_lines.append(status)
-            if len(status_lines) > 3:
-                status_lines.pop(0)
-            combined_status = '\n'.join(status_lines)
-            gr.update(value=combined_status, elem_id="status")
-        time.sleep(1)  # Adjust the sleep duration as needed
-
 if __name__ == "__main__":
-    status_thread = threading.Thread(target=update_status, daemon=True)
-    status_thread.start()
     combined_interface.launch(share=True)

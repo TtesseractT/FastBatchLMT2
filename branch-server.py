@@ -240,7 +240,8 @@ def get_user_stats(key):
 # Function to handle the Gradio interface
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
     if not validate_key(key):
-        return "Wrong Access Key - Check Key", "", ""
+        yield "Wrong Access Key - Check Key", "", ""
+        return
 
     check_ffmpeg()  # Ensure ffmpeg is installed
 
@@ -267,12 +268,15 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         # Check if the URL has been processed before
         if url in processed_urls and not force_reprocess:
             json_file, srt_file = processed_urls[url]
-            return "Success", json_file, srt_file
+            yield "Success", json_file, srt_file
+            return
 
+        yield "Downloading video...", "", ""
         video_path, duration = download_video(url)
         video_format = os.path.splitext(video_path)[1][1:]
         file_size = os.path.getsize(video_path)
 
+    yield "Processing video...", "", ""
     json_file, srt_file = process_video(video_path, force_reprocess)
     processing_time = time.time() - start_time
 
@@ -298,8 +302,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         audio_bitrate=audio_bitrate, audio_sample_rate=audio_sample_rate
     )
 
-    return "Success", json_file, srt_file
-
+    yield "Success", json_file, srt_file
 
 # Function to handle video download progress
 def download_progress_hook(d):
@@ -319,12 +322,11 @@ iface = gr.Interface(
         gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
-        #   :TODO: dont need the status till the loading bar is implemented correctly :TODO:
         gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
         gr.File(label="SRT File")
     ],
-    live=False,
+    live=True,
     title="Fast LMT2 - Created by Sabian Hibbs",
     description="""Version 1.0.98 - Recent Updates:
 

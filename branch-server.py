@@ -17,6 +17,7 @@ LOG_FILE = "transcription.log"
 WHITELIST_FILE = "whitelist.json"
 USER_ACTIVITY_FILE = "user_activity.json"
 
+# ---------------------------------------------------
 # Load processed URLs
 if os.path.exists(PROCESSED_URLS_FILE):
     with open(PROCESSED_URLS_FILE, "r") as f:
@@ -37,6 +38,7 @@ if os.path.exists(USER_ACTIVITY_FILE):
         user_activity = json.load(f)
 else:
     user_activity = {}
+# ---------------------------------------------------
 
 # Save processed URLs
 def save_processed_urls():
@@ -79,7 +81,7 @@ def convert_video_to_audio(video_path, audio_format='wav'):
     if not os.path.exists(audio_path):
         try:
             subprocess.run(
-                ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path],
+                ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", "-stats", audio_path],
                 check=True
             )
         except subprocess.CalledProcessError as e:
@@ -211,6 +213,7 @@ def track_user_activity(key, file_name, url, force_reprocess, duration, output_s
         user_activity[key] = {
             "total_videos": 0,
             "total_hours": 0.0,
+            "total_processing_time": 0.0,
             "total_characters": 0,
             "total_words": 0,
             "entries": []
@@ -220,6 +223,7 @@ def track_user_activity(key, file_name, url, force_reprocess, duration, output_s
     user_activity[key]["total_hours"] += duration
     user_activity[key]["total_characters"] += total_characters
     user_activity[key]["total_words"] += total_words
+    user_activity[key]["total_processing_time"] += processing_time
     user_activity[key]["entries"].append(entry)
     
     save_user_activity()
@@ -231,6 +235,7 @@ def get_user_stats(key):
         return (
             f"Total Videos: {stats['total_videos']}\n"
             f"Total Hours: {stats['total_hours']}\n"
+            f"Total Processing Time: {stats['total_processing_time']}\n" 
             f"Total Characters: {stats['total_characters']}\n"
             f"Total Words: {stats['total_words']}"
         )

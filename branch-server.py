@@ -62,11 +62,10 @@ def sanitize_filename(filename):
     return re.sub(r'[^\w\s-]', '', filename)
 
 # Function to download video using yt-dlp
-def download_video(url, progress_callback=None):
+def download_video(url):
     ydl_opts = {
         'outtmpl': os.path.join(TEMP_DIR, '%(title)s.%(ext)s'),
-        'format': 'bestvideo[height<=144]+bestaudio/best',  # lowest video quality and best audio quality
-        'progress_hooks': [progress_callback] if progress_callback else []
+        'format': 'bestvideo[height<=144]+bestaudio/best'  # lowest video quality and best audio quality
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -80,16 +79,23 @@ def convert_video_to_audio(video_path, audio_format='wav'):
     audio_path = os.path.splitext(video_path)[0] + f'.{audio_format}'
     if not os.path.exists(audio_path):
         try:
-            subprocess.run(
-                ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path],
-                check=True
-            )
-        except subprocess.CalledProcessError as e:
+            run_command(["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path])
+        except RuntimeError as e:
             raise RuntimeError(f"ffmpeg failed to convert video to audio: {e}")
     return audio_path
 
+# Function to run commands and capture output in real-time
+def run_command(command):
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    for line in process.stdout:
+        status_queue.put(line.strip())
+    process.stdout.close()
+    process.wait()
+    if process.returncode != 0:
+        raise RuntimeError(f"Command {' '.join(command)} failed with return code {process.returncode}")
+
 # Function to process the video and generate transcription
-def process_video(file_path, force_reprocess=False, progress_callback=None):
+def process_video(file_path, force_reprocess=False):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -111,12 +117,11 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
 
     # Run the transcription command
     try:
-        subprocess.run(
-            f'insanely-fast-whisper --file-name "{audio_path}" --model-name openai/whisper-large-v3 --task transcribe --language en --device-id 0 --transcript-path "{output_json}"',
-            shell=True,
-            check=True
-        )
-    except subprocess.CalledProcessError as e:
+        run_command([
+            'insanely-fast-whisper', '--file-name', audio_path, '--model-name', 'openai/whisper-large-v3',
+            '--task', 'transcribe', '--language', 'en', '--device-id', '0', '--transcript-path', output_json
+        ])
+    except RuntimeError as e:
         raise RuntimeError(f"Transcription failed: {e}")
 
     # Convert JSON to SRT
@@ -310,13 +315,6 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         status_queue.put(f"Error: {str(e)}")
         return "", "", ""
 
-# Function to handle video download progress
-def download_progress_hook(d):
-    if d['status'] == 'downloading':
-        status_queue.put(f"Downloading: {d['_percent_str']} - {d['_eta_str']} remaining")
-    elif d['status'] == 'finished':
-        status_queue.put("Download complete")
-
 # Function to get status updates from the queue
 def get_status():
     while True:
@@ -372,9 +370,15 @@ combined_interface = gr.TabbedInterface([iface, stats_interface], ["Transcribe V
 # Function to update status textbox
 def update_status():
     status_generator = get_status()
+    status_lines = []
     while True:
         status = next(status_generator)
-        gr.update(value=status, elem_id="status")
+        if status:
+            status_lines.append(status)
+            if len(status_lines) > 3:
+                status_lines.pop(0)
+            combined_status = '\n'.join(status_lines)
+            gr.update(value=combined_status, elem_id="status")
         time.sleep(1)  # Adjust the sleep duration as needed
 
 if __name__ == "__main__":

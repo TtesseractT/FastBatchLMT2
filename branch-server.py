@@ -326,16 +326,9 @@ iface = gr.Interface(
     ],
     live=False,
     title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.98 - Recent Updates:
+    description="""Version 1.0.129 - Recent Updates:
 
-- Access Keys: Added whitelist for known users. Tracks hours, requests, and force reprocesses.
-
-- Status Bar: Currently buggy, will show accurate processing times soon.
-
-- Conversion Settings: For uploaded files, use WAV as default if unsure.
-
-- Force Reprocess: Reprocesses videos even if previously processed.
-
+    1.1.128 Introduction to User Stats - Check in the Tab Above ^
     """
 )
 

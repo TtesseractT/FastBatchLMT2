@@ -7,5 +7,10 @@
     "KB2024":{
         "name": "KelvinB",
         "email": "test@test.com"
+    },
+
+    "EB2024":{
+        "name": "eb",
+        "email": "eb@test.com"
     }
 }

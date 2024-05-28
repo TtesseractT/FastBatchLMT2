@@ -320,7 +320,7 @@ iface = gr.Interface(
     ],
     outputs=[
         #   :TODO: dont need the status till the loading bar is implemented correctly :TODO:
-        #gr.Textbox(label="Status"),
+        gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
         gr.File(label="SRT File")
     ],

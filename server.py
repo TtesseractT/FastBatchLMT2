@@ -316,7 +316,7 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
-        gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
+        gr.Radio(label="Audio Format - Select WAV as Default", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
         #   :TODO: dont need the status till the loading bar is implemented correctly :TODO:
@@ -326,7 +326,7 @@ iface = gr.Interface(
     ],
     live=False,
     title="Fast LMT2 - Fast Transcription to Caption Format (SRT)",
-    description="""Version 1.1.131 - Recent Updates:
+    description="""Version 1.1.132 - Recent Updates:
 
     - Introduction to User Stats - Check in the Tab Above ^
     

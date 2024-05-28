@@ -224,6 +224,19 @@ def track_user_activity(key, file_name, url, force_reprocess, duration, output_s
     
     save_user_activity()
 
+# Function to get user stats
+def get_user_stats(key):
+    if key in user_activity:
+        stats = user_activity[key]
+        return (
+            f"Total Videos: {stats['total_videos']}\n"
+            f"Total Hours: {stats['total_hours']}\n"
+            f"Total Characters: {stats['total_characters']}\n"
+            f"Total Words: {stats['total_words']}"
+        )
+    else:
+        return "No activity found for this key."
+
 # Function to handle the Gradio interface
 def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
     if not validate_key(key):
@@ -306,7 +319,8 @@ iface = gr.Interface(
         gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
-        gr.Textbox(label="Status"),
+        #   :TODO: dont need the status till the loading bar is implemented correctly :TODO:
+        #gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
         gr.File(label="SRT File")
     ],
@@ -325,5 +339,18 @@ iface = gr.Interface(
     """
 )
 
+# Add a new Gradio interface for showing user stats
+stats_interface = gr.Interface(
+    fn=get_user_stats,
+    inputs=[gr.Textbox(label="Enter Access Key")],
+    outputs=[gr.Textbox(label="User Stats")],
+    live=False,
+    title="User Stats",
+    description="Enter your access key to view your usage statistics."
+)
+
+# Combine both interfaces
+combined_interface = gr.TabbedInterface([iface, stats_interface], ["Transcribe Video", "Show User Stats"])
+
 if __name__ == "__main__":
-    iface.launch(share=True)
+    combined_interface.launch(share=True)

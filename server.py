@@ -350,7 +350,7 @@ stats_interface = gr.Interface(
 combined_interface = gr.TabbedInterface([iface, stats_interface], ["Transcribe Video", "Show User Stats"])
 
 if __name__ == "__main__":
-    combined_interface.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    combined_interface.launch(server_name="0.0.0.0", server_port=443, share=False)
     #iface.launch(server_name="0.0.0.0", server_port=8080, share=False)
     #   Use for local testing.
     # iface.launch(share=True) 

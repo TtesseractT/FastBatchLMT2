@@ -125,6 +125,7 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
 
     return output_json, output_srt
 
+# Function to convert JSON to SRT
 def convert_to_srt(input_path, output_path):
     def format_seconds(seconds):
         if seconds is None:
@@ -378,3 +379,6 @@ combined_interface = gr.TabbedInterface([iface, stats_interface], ["Transcribe V
 
 if __name__ == "__main__":
     combined_interface.launch(share=True)
+    #iface.launch(server_name="0.0.0.0", server_port=8080, share=False)
+    #   Use for local testing.
+    # iface.launch(share=True)

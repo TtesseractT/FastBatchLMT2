@@ -17,7 +17,6 @@ LOG_FILE = "transcription.log"
 WHITELIST_FILE = "whitelist.json"
 USER_ACTIVITY_FILE = "user_activity.json"
 
-# ---------------------------------------------------
 # Load processed URLs
 if os.path.exists(PROCESSED_URLS_FILE):
     with open(PROCESSED_URLS_FILE, "r") as f:
@@ -38,7 +37,6 @@ if os.path.exists(USER_ACTIVITY_FILE):
         user_activity = json.load(f)
 else:
     user_activity = {}
-# ---------------------------------------------------
 
 # Save processed URLs
 def save_processed_urls():
@@ -81,7 +79,7 @@ def convert_video_to_audio(video_path, audio_format='wav'):
     if not os.path.exists(audio_path):
         try:
             subprocess.run(
-                ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", "-stats", audio_path],
+                ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", audio_path],
                 check=True
             )
         except subprocess.CalledProcessError as e:
@@ -119,7 +117,7 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Transcription failed: {e}")
 
-    # Convert JSON to SRT
+    # Convert JSON to SRT with adjustments
     convert_to_srt(output_json, output_srt)
 
     # Delete original video file to save space
@@ -127,24 +125,48 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
 
     return output_json, output_srt
 
-# Function to convert JSON to SRT
 def convert_to_srt(input_path, output_path):
     def format_seconds(seconds):
         if seconds is None:
             return "00:00:00,000"
         whole_seconds = int(seconds)
         milliseconds = int((seconds - whole_seconds) * 1000)
-
+        
         hours = whole_seconds // 3600
         minutes = (whole_seconds % 3600) // 60
         seconds = whole_seconds % 60
-
+        
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
-
+    
+    def adjust_timestamps(subtitles):
+        adjusted_subtitles = []
+        for i, subtitle in enumerate(subtitles):
+            if i > 0 and subtitles[i-1]['end'] > subtitle['start']:
+                # Adjust the start time of the current subtitle if it overlaps with the previous one
+                subtitle['start'] = subtitles[i-1]['end'] + 1
+            adjusted_subtitles.append(subtitle)
+        return adjusted_subtitles
+    
+    def is_similar(a, b, threshold=0.8):
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, a, b).ratio() > threshold
+    
+    def remove_duplicates(subtitles, min_time_diff=1.0):
+        unique_subtitles = []
+        for i, subtitle in enumerate(subtitles):
+            if i > 0:
+                previous_subtitle = unique_subtitles[-1]
+                start_time_diff = (int(subtitle['start'][:2]) * 3600 + int(subtitle['start'][3:5]) * 60 + int(subtitle['start'][6:8]) + int(subtitle['start'][9:]) / 1000) - \
+                                  (int(previous_subtitle['start'][:2]) * 3600 + int(previous_subtitle['start'][3:5]) * 60 + int(previous_subtitle['start'][6:8]) + int(previous_subtitle['start'][9:]) / 1000)
+                if is_similar(subtitle['text'], previous_subtitle['text']) and start_time_diff < min_time_diff:
+                    continue
+            unique_subtitles.append(subtitle)
+        return unique_subtitles
+    
     with open(input_path, 'r') as file:
         data = json.load(file)
-
-    rst_string = ''
+    
+    subtitles = []
     for index, chunk in enumerate(data['chunks'], 1):
         text = chunk['text']
         start, end = chunk.get('timestamp', [None, None])
@@ -152,13 +174,18 @@ def convert_to_srt(input_path, output_path):
             print(f"Warning: Chunk {index} has missing timestamps. Skipping...")
             continue
         start_format, end_format = format_seconds(start), format_seconds(end)
-        srt_entry = f"{index}\n{start_format} --> {end_format}\n{text}\n\n"
-
-        rst_string += srt_entry
-
+        subtitles.append({'index': index, 'start': start_format, 'end': end_format, 'text': text})
+    
+    # Adjust timestamps and remove duplicates
+    subtitles = adjust_timestamps(subtitles)
+    subtitles = remove_duplicates(subtitles)
+    
     with open(output_path, 'w', encoding='utf-8') as file:
-        file.write(rst_string)
+        for subtitle in subtitles:
+            srt_entry = f"{subtitle['index']}\n{subtitle['start']} --> {subtitle['end']}\n{subtitle['text']}\n\n"
+            file.write(srt_entry)
 
+# Function to count words in SRT file
 def count_words_str_file(rst_string):
     total_characters = len(rst_string)
     total_words = len(rst_string.split())
@@ -213,7 +240,6 @@ def track_user_activity(key, file_name, url, force_reprocess, duration, output_s
         user_activity[key] = {
             "total_videos": 0,
             "total_hours": 0.0,
-            "total_processing_time": 0.0,
             "total_characters": 0,
             "total_words": 0,
             "entries": []
@@ -223,7 +249,6 @@ def track_user_activity(key, file_name, url, force_reprocess, duration, output_s
     user_activity[key]["total_hours"] += duration
     user_activity[key]["total_characters"] += total_characters
     user_activity[key]["total_words"] += total_words
-    user_activity[key]["total_processing_time"] += processing_time
     user_activity[key]["entries"].append(entry)
     
     save_user_activity()
@@ -235,7 +260,6 @@ def get_user_stats(key):
         return (
             f"Total Videos: {stats['total_videos']}\n"
             f"Total Hours: {stats['total_hours']}\n"
-            f"Total Processing Time: {stats['total_processing_time']}\n" 
             f"Total Characters: {stats['total_characters']}\n"
             f"Total Words: {stats['total_words']}"
         )
@@ -305,7 +329,6 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
 
     return "Success", json_file, srt_file
 
-
 # Function to handle video download progress
 def download_progress_hook(d):
     if d['status'] == 'downloading':
@@ -321,19 +344,22 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
-        gr.Radio(label="Audio Format - Upload Files Only", choices=["wav", "mp3", "aac"], value="wav")
+        gr.Radio(label="Audio Format - Select WAV as Default", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
-        #   :TODO: dont need the status till the loading bar is implemented correctly :TODO:
         gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
         gr.File(label="SRT File")
     ],
     live=False,
-    title="Fast LMT2 - Created by Sabian Hibbs",
-    description="""Version 1.0.129 - Recent Updates:
+    title="Fast LMT2 - Fast Transcription to Caption Format (SRT)",
+    description="""Version 1.1.132 - Recent Updates:
 
-    1.1.128 Introduction to User Stats - Check in the Tab Above ^
+    - Introduction to User Stats - Check in the Tab Above ^
+    
+    - Make sure you have a valid Access Key
+
+    Created by S.Hibbs @
     """
 )
 

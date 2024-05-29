@@ -7,7 +7,7 @@ import re
 import gradio as gr
 import yt_dlp
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Define global variables and paths
 TEMP_DIR = "temp"
@@ -117,7 +117,7 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Transcription failed: {e}")
 
-    # Convert JSON to SRT
+    # Convert JSON to SRT with adjustments
     convert_to_srt(output_json, output_srt)
 
     # Delete original video file to save space
@@ -139,10 +139,39 @@ def convert_to_srt(input_path, output_path):
 
         return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
+    def adjust_timestamps(subtitles):
+        adjusted_subtitles = []
+        for i, subtitle in enumerate(subtitles):
+            if i > 0:
+                prev_end = datetime.strptime(subtitles[i-1]['end'], '%H:%M:%S,%f')
+                curr_start = datetime.strptime(subtitle['start'], '%H:%M:%S,%f')
+                if prev_end >= curr_start:
+                    curr_start = prev_end + timedelta(milliseconds=1)
+                    subtitle['start'] = curr_start.strftime('%H:%M:%S,%f')[:-3]
+            adjusted_subtitles.append(subtitle)
+        return adjusted_subtitles
+
+    def is_similar(a, b, threshold=0.8):
+        from difflib import SequenceMatcher
+        return SequenceMatcher(None, a, b).ratio() > threshold
+
+    def remove_duplicates(subtitles, min_time_diff=1.0):
+        unique_subtitles = []
+        for i, subtitle in enumerate(subtitles):
+            if i > 0:
+                previous_subtitle = unique_subtitles[-1]
+                prev_start = datetime.strptime(previous_subtitle['start'], '%H:%M:%S,%f')
+                curr_start = datetime.strptime(subtitle['start'], '%H:%M:%S,%f')
+                start_time_diff = (curr_start - prev_start).total_seconds()
+                if is_similar(subtitle['text'], previous_subtitle['text']) and start_time_diff < min_time_diff:
+                    continue
+            unique_subtitles.append(subtitle)
+        return unique_subtitles
+
     with open(input_path, 'r') as file:
         data = json.load(file)
 
-    rst_string = ''
+    subtitles = []
     for index, chunk in enumerate(data['chunks'], 1):
         text = chunk['text']
         start, end = chunk.get('timestamp', [None, None])
@@ -150,13 +179,18 @@ def convert_to_srt(input_path, output_path):
             print(f"Warning: Chunk {index} has missing timestamps. Skipping...")
             continue
         start_format, end_format = format_seconds(start), format_seconds(end)
-        srt_entry = f"{index}\n{start_format} --> {end_format}\n{text}\n\n"
+        subtitles.append({'index': index, 'start': start_format, 'end': end_format, 'text': text})
 
-        rst_string += srt_entry
+    # Adjust timestamps and remove duplicates
+    subtitles = adjust_timestamps(subtitles)
+    subtitles = remove_duplicates(subtitles)
 
     with open(output_path, 'w', encoding='utf-8') as file:
-        file.write(rst_string)
+        for subtitle in subtitles:
+            srt_entry = f"{subtitle['index']}\n{subtitle['start']} --> {subtitle['end']}\n{subtitle['text']}\n\n"
+            file.write(srt_entry)
 
+# Function to count words in SRT file
 def count_words_str_file(rst_string):
     total_characters = len(rst_string)
     total_words = len(rst_string.split())
@@ -300,7 +334,6 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
 
     return "Success", json_file, srt_file
 
-
 # Function to handle video download progress
 def download_progress_hook(d):
     if d['status'] == 'downloading':
@@ -319,7 +352,6 @@ iface = gr.Interface(
         gr.Radio(label="Audio Format - Select WAV as Default", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
-        #   :TODO: dont need the status till the loading bar is implemented correctly :TODO:
         gr.Textbox(label="Status"),
         gr.File(label="JSON File"),
         gr.File(label="SRT File")

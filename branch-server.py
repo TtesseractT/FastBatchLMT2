@@ -6,7 +6,6 @@ import time
 import re
 import gradio as gr
 import yt_dlp
-import threading
 from datetime import datetime
 
 # Define global variables and paths
@@ -121,7 +120,8 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
     convert_to_srt(output_json, output_srt)
 
     # Delete original video file to save space
-    os.remove(file_path)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        os.remove(file_path)
 
     return output_json, output_srt
 

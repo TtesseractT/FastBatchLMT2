@@ -389,11 +389,11 @@ iface = gr.Interface(
     ],
     live=False,
     title="Fast LMT2 - Fast Transcription to Caption Format (SRT)",
-    description="""Version 1.1.132 - Recent Updates:
+    description="""Version 1.1.151 - Recent Updates:
 
-    - Introduction to User Stats - Check in the Tab Above ^
+    - Introduction to User Stats - Check in the Tab Above ^ Make sure you have a valid Access Key
     
-    - Make sure you have a valid Access Key
+    - Added Enhancements AI to improve audio quality (Experimental) - Select the checkbox to enable. Its quite slow but can improve the quality of the audio.
 
     Created by S.Hibbs @
     """

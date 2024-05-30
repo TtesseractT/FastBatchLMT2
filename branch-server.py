@@ -94,11 +94,11 @@ def enhance_input_quality(video_path):
             ["demucs", video_path, "-o", output_dir],
             check=True
         )
-        enhanced_audio_path = os.path.join(output_dir, "separated", "htdemucs", os.path.basename(video_path), "vocals.wav")
+        enhanced_audio_path = os.path.join(output_dir, "separated", "htdemucs", os.path.basename(video_path).replace('.mp4', ''), "vocals.wav")
         if os.path.exists(enhanced_audio_path):
             return enhanced_audio_path
         else:
-            raise RuntimeError("Enhanced audio file not found")
+            raise RuntimeError(f"Enhanced audio file not found at path: {enhanced_audio_path}")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Demucs failed to enhance audio quality: {e}")
 
@@ -142,7 +142,7 @@ def process_video(file_path, force_reprocess=False, enhance_input=False, progres
 
     # Delete original video file and enhanced audio files to save space
     os.remove(file_path)
-    demucs_output_dir = os.path.join(os.path.dirname(audio_path), "separated", "htdemucs", os.path.basename(file_path))
+    demucs_output_dir = os.path.join(os.path.dirname(audio_path), "separated", "htdemucs", os.path.basename(file_path).replace('.mp4', ''))
     shutil.rmtree(demucs_output_dir, ignore_errors=True)
 
     return output_json, output_srt

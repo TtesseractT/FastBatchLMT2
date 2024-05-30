@@ -88,15 +88,19 @@ def convert_video_to_audio(video_path, audio_format='wav'):
 
 # Function to enhance input quality using Demucs
 def enhance_input_quality(video_path):
-    output_path = os.path.splitext(video_path)[0] + '_enhanced.wav'
+    output_dir = os.path.dirname(video_path)
     try:
         subprocess.run(
-            ["demucs", video_path, "-o", output_path],
+            ["demucs", video_path, "-o", output_dir],
             check=True
         )
+        enhanced_audio_path = os.path.join(output_dir, "separated", "htdemucs", os.path.basename(video_path), "vocals.wav")
+        if os.path.exists(enhanced_audio_path):
+            return enhanced_audio_path
+        else:
+            raise RuntimeError("Enhanced audio file not found")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Demucs failed to enhance audio quality: {e}")
-    return output_path
 
 # Function to process the video and generate transcription
 def process_video(file_path, force_reprocess=False, enhance_input=False, progress_callback=None):
@@ -136,8 +140,10 @@ def process_video(file_path, force_reprocess=False, enhance_input=False, progres
     # Convert JSON to SRT with adjustments
     convert_to_srt(output_json, output_srt)
 
-    # Delete original video file to save space
+    # Delete original video file and enhanced audio files to save space
     os.remove(file_path)
+    demucs_output_dir = os.path.join(os.path.dirname(audio_path), "separated", "htdemucs", os.path.basename(file_path))
+    shutil.rmtree(demucs_output_dir, ignore_errors=True)
 
     return output_json, output_srt
 
@@ -366,7 +372,7 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
-        gr.Checkbox(label="Enhance Input Quality AI (Slower)"),
+        gr.Checkbox(label="Enhance Input Quality AI"),
         gr.Radio(label="Audio Format - Select WAV as Default", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[

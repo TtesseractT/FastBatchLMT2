@@ -88,13 +88,14 @@ def convert_video_to_audio(video_path, audio_format='wav'):
 
 # Function to enhance input quality using Demucs
 def enhance_input_quality(video_path):
-    output_dir = os.path.dirname(video_path)
+    output_dir = os.path.join(TEMP_DIR, "htdemucs")
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
     try:
         subprocess.run(
             ["demucs", video_path, "-o", output_dir],
             check=True
         )
-        enhanced_audio_path = os.path.join(output_dir, "separated", "htdemucs", os.path.basename(video_path).replace('.mp4', ''), "vocals.wav")
+        enhanced_audio_path = os.path.join(output_dir, base_name, "vocals.wav")
         if os.path.exists(enhanced_audio_path):
             return enhanced_audio_path
         else:
@@ -142,7 +143,7 @@ def process_video(file_path, force_reprocess=False, enhance_input=False, progres
 
     # Delete original video file and enhanced audio files to save space
     os.remove(file_path)
-    demucs_output_dir = os.path.join(os.path.dirname(audio_path), "separated", "htdemucs", os.path.basename(file_path).replace('.mp4', ''))
+    demucs_output_dir = os.path.join(TEMP_DIR, "htdemucs", os.path.splitext(os.path.basename(file_path))[0])
     shutil.rmtree(demucs_output_dir, ignore_errors=True)
 
     return output_json, output_srt

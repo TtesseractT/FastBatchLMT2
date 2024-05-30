@@ -86,8 +86,26 @@ def convert_video_to_audio(video_path, audio_format='wav'):
             raise RuntimeError(f"ffmpeg failed to convert video to audio: {e}")
     return audio_path
 
+# Function to enhance input quality using Demucs
+def enhance_input_quality(video_path):
+    output_dir = os.path.join(TEMP_DIR, "htdemucs")
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
+    try:
+        subprocess.run(
+            ["demucs", video_path, "-o", output_dir],
+            check=True
+        )
+        enhanced_audio_dir = os.path.join(output_dir, "htdemucs", base_name)
+        enhanced_audio_path = os.path.join(enhanced_audio_dir, "vocals.wav")
+        if os.path.exists(enhanced_audio_path):
+            return enhanced_audio_path, enhanced_audio_dir
+        else:
+            raise RuntimeError(f"Enhanced audio file not found at path: {enhanced_audio_path}")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Demucs failed to enhance audio quality: {e}")
+
 # Function to process the video and generate transcription
-def process_video(file_path, force_reprocess=False, progress_callback=None):
+def process_video(file_path, force_reprocess=False, enhance_input=False, progress_callback=None):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -107,6 +125,12 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
     # Convert video to audio
     audio_path = convert_video_to_audio(file_path)
 
+    if enhance_input:
+        # Enhance input quality using Demucs
+        audio_path, enhanced_audio_dir = enhance_input_quality(file_path)
+    else:
+        enhanced_audio_dir = None
+
     # Run the transcription command
     try:
         subprocess.run(
@@ -121,7 +145,12 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
     convert_to_srt(output_json, output_srt)
 
     # Delete original video file to save space
-    os.remove(file_path)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    
+    # Delete enhanced audio files to save space
+    if enhanced_audio_dir:
+        shutil.rmtree(enhanced_audio_dir, ignore_errors=True)
 
     return output_json, output_srt
 
@@ -219,11 +248,12 @@ def get_audio_metrics(audio_path):
         raise RuntimeError(f"Failed to get audio metrics: {e}")
 
 # Function to track user activity
-def track_user_activity(key, file_name, url, force_reprocess, duration, output_srt, output_json, TEMP_DIR, message, video_path, total_characters, total_words, processing_time, video_format, file_size, transcription_model, audio_bitrate, audio_sample_rate):
+def track_user_activity(key, file_name, url, force_reprocess, enhance_input, duration, output_srt, output_json, TEMP_DIR, message, video_path, total_characters, total_words, processing_time, video_format, file_size, transcription_model, audio_bitrate, audio_sample_rate):
     entry = {
         "file": file_name,
         "url": url,
         "force_reprocess": force_reprocess,
+        "enhance_input": enhance_input,
         "duration_hours": duration,
         "timestamp": datetime.now().isoformat(),
         "total_characters": total_characters,
@@ -272,7 +302,7 @@ def get_user_stats(key):
         return "No activity found for this key."
 
 # Function to handle the Gradio interface
-def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
+def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, enhance_input=False, audio_format='wav'):
     if not validate_key(key):
         return "Wrong Access Key - Check Key", "", ""
 
@@ -307,7 +337,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         video_format = os.path.splitext(video_path)[1][1:]
         file_size = os.path.getsize(video_path)
 
-    json_file, srt_file = process_video(video_path, force_reprocess)
+    json_file, srt_file = process_video(video_path, force_reprocess, enhance_input)
     processing_time = time.time() - start_time
 
     # Read the SRT file to get the text
@@ -323,7 +353,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
 
     # Track user activity
     track_user_activity(
-        key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0,  # Convert duration to hours
+        key, os.path.basename(video_path), url, force_reprocess, enhance_input, duration / 3600.0,  # Convert duration to hours
         output_srt=srt_file, output_json=json_file, TEMP_DIR=TEMP_DIR, 
         message="Transcription successful", video_path=video_path, 
         total_characters=total_characters, total_words=total_words,
@@ -349,6 +379,7 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
+        gr.Checkbox(label="Enhance Input (Quite Slow - Only select if you get transcriptions with poor quality)"),
         gr.Radio(label="Audio Format - Select WAV as Default", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[

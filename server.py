@@ -394,6 +394,8 @@ iface = gr.Interface(
     - Introduction to User Stats - Check in the Tab Above ^ Make sure you have a valid Access Key
     
     - Added Enhancements AI to improve audio quality (Experimental) - Select the checkbox to enable. Its quite slow but can improve the quality of the audio.
+    
+    - Enhancements = Complete Vocal Isolation using Demucs
 
     Created by S.Hibbs @
     """

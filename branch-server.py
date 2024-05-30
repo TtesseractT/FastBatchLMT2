@@ -86,8 +86,20 @@ def convert_video_to_audio(video_path, audio_format='wav'):
             raise RuntimeError(f"ffmpeg failed to convert video to audio: {e}")
     return audio_path
 
+# Function to enhance input quality using Demucs
+def enhance_input_quality(video_path):
+    output_path = os.path.splitext(video_path)[0] + '_enhanced.wav'
+    try:
+        subprocess.run(
+            ["demucs", video_path, "-o", output_path],
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Demucs failed to enhance audio quality: {e}")
+    return output_path
+
 # Function to process the video and generate transcription
-def process_video(file_path, force_reprocess=False, progress_callback=None):
+def process_video(file_path, force_reprocess=False, enhance_input=False, progress_callback=None):
     file_name = os.path.basename(file_path)
     file_base = os.path.splitext(file_name)[0]
     output_json = os.path.join(OUTPUT_DIR, f"{file_base}.json")
@@ -106,6 +118,10 @@ def process_video(file_path, force_reprocess=False, progress_callback=None):
 
     # Convert video to audio
     audio_path = convert_video_to_audio(file_path)
+
+    if enhance_input:
+        # Enhance input quality using Demucs
+        audio_path = enhance_input_quality(file_path)
 
     # Run the transcription command
     try:
@@ -219,11 +235,12 @@ def get_audio_metrics(audio_path):
         raise RuntimeError(f"Failed to get audio metrics: {e}")
 
 # Function to track user activity
-def track_user_activity(key, file_name, url, force_reprocess, duration, output_srt, output_json, TEMP_DIR, message, video_path, total_characters, total_words, processing_time, video_format, file_size, transcription_model, audio_bitrate, audio_sample_rate):
+def track_user_activity(key, file_name, url, force_reprocess, enhance_input, duration, output_srt, output_json, TEMP_DIR, message, video_path, total_characters, total_words, processing_time, video_format, file_size, transcription_model, audio_bitrate, audio_sample_rate):
     entry = {
         "file": file_name,
         "url": url,
         "force_reprocess": force_reprocess,
+        "enhance_input": enhance_input,
         "duration_hours": duration,
         "timestamp": datetime.now().isoformat(),
         "total_characters": total_characters,
@@ -272,7 +289,7 @@ def get_user_stats(key):
         return "No activity found for this key."
 
 # Function to handle the Gradio interface
-def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_format='wav'):
+def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, enhance_input=False, audio_format='wav'):
     if not validate_key(key):
         return "Wrong Access Key - Check Key", "", ""
 
@@ -307,7 +324,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
         video_format = os.path.splitext(video_path)[1][1:]
         file_size = os.path.getsize(video_path)
 
-    json_file, srt_file = process_video(video_path, force_reprocess)
+    json_file, srt_file = process_video(video_path, force_reprocess, enhance_input)
     processing_time = time.time() - start_time
 
     # Read the SRT file to get the text
@@ -323,7 +340,7 @@ def transcribe_video(key, url, uploaded_file=None, force_reprocess=False, audio_
 
     # Track user activity
     track_user_activity(
-        key, os.path.basename(video_path), url, force_reprocess, duration / 3600.0,  # Convert duration to hours
+        key, os.path.basename(video_path), url, force_reprocess, enhance_input, duration / 3600.0,  # Convert duration to hours
         output_srt=srt_file, output_json=json_file, TEMP_DIR=TEMP_DIR, 
         message="Transcription successful", video_path=video_path, 
         total_characters=total_characters, total_words=total_words,
@@ -349,6 +366,7 @@ iface = gr.Interface(
         gr.Textbox(label="Enter A Video URL"),
         gr.File(label="Upload Video File", type="filepath"),
         gr.Checkbox(label="Force Reprocess"),
+        gr.Checkbox(label="Enhance Input Quality AI (Slower)"),
         gr.Radio(label="Audio Format - Select WAV as Default", choices=["wav", "mp3", "aac"], value="wav")
     ],
     outputs=[
@@ -383,7 +401,3 @@ combined_interface = gr.TabbedInterface([iface, stats_interface], ["Transcribe V
 
 if __name__ == "__main__":
     combined_interface.launch(share=True)
-    #iface.launch(server_name="0.0.0.0", server_port=8080, share=False)
-    #   Use for local testing.
-    # iface.launch(share=True)
-    

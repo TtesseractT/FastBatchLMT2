@@ -95,9 +95,10 @@ def enhance_input_quality(video_path):
             ["demucs", video_path, "-o", output_dir],
             check=True
         )
-        enhanced_audio_path = os.path.join(output_dir, base_name, "vocals.wav")
+        enhanced_audio_dir = os.path.join(output_dir, "htdemucs", base_name)
+        enhanced_audio_path = os.path.join(enhanced_audio_dir, "vocals.wav")
         if os.path.exists(enhanced_audio_path):
-            return enhanced_audio_path
+            return enhanced_audio_path, enhanced_audio_dir
         else:
             raise RuntimeError(f"Enhanced audio file not found at path: {enhanced_audio_path}")
     except subprocess.CalledProcessError as e:
@@ -126,7 +127,9 @@ def process_video(file_path, force_reprocess=False, enhance_input=False, progres
 
     if enhance_input:
         # Enhance input quality using Demucs
-        audio_path = enhance_input_quality(file_path)
+        audio_path, enhanced_audio_dir = enhance_input_quality(file_path)
+    else:
+        enhanced_audio_dir = None
 
     # Run the transcription command
     try:
@@ -141,10 +144,13 @@ def process_video(file_path, force_reprocess=False, enhance_input=False, progres
     # Convert JSON to SRT with adjustments
     convert_to_srt(output_json, output_srt)
 
-    # Delete original video file and enhanced audio files to save space
-    os.remove(file_path)
-    demucs_output_dir = os.path.join(TEMP_DIR, "htdemucs", os.path.splitext(os.path.basename(file_path))[0])
-    shutil.rmtree(demucs_output_dir, ignore_errors=True)
+    # Delete original video file to save space
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    
+    # Delete enhanced audio files to save space
+    if enhanced_audio_dir:
+        shutil.rmtree(enhanced_audio_dir, ignore_errors=True)
 
     return output_json, output_srt
 
